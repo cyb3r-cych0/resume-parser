@@ -23,7 +23,7 @@ A web application for parsing and extracting key information from resumes using 
 
 1. **Clone the repository**:
    
-  `git clone [<https://github.com/cyb3r-cych0/resume-parser.git>]`
+  `git clone https://github.com/cyb3r-cych0/resume-parser.git`
 
    `cd resume-parser`
 
