@@ -94,12 +94,12 @@ Uploads and parses a resume file.
 ### GET /health
 Checks the health of the backend.
 
-- **Response**: `{status\: ok}`
+- **Response**: `{status: ok}`
 
 ## Configuration
 
 - **Secrets**: Edit `.streamlit/secrets.toml` to configure API keys or custom settings (e.g., Google API key placeholder).
-- **CORS**: The backend allows requests from `http://localhost:8501` and `http://127.0.0.1:8501\`by default. Modify in \pi.py\ if needed.
+- **CORS**: The backend allows requests from `http://localhost:8501` and `http://127.0.0.1:8501\`by default. Modify in `api.py` if needed.
 
 ## Contributing
 
@@ -107,7 +107,7 @@ Contributions are welcome! Please fork the repository and submit a pull request 
 
 ## License
 
-This project is licensed under the MIT License. See the [(LICENSE)] file for details.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
 ## Author
 
