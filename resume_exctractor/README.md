@@ -10,7 +10,7 @@
 
 2. **Install Requirements**
 
-    python --version 3.13 `compatible with streamlit`
+    python version 3.13.x `compatible with streamlit`
 
 3. **Install dependencies**:
 
@@ -21,13 +21,15 @@
 
 4. **Download spaCy model**:
 
-    pip install -U pip setuptools wheel
-    pip install -U spacy
-    python -m spacy download en_core_web_sm - efficiency
-    python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')" - `Both models are used offline after this download.`
-    python -m spacy download en_core_web_trf - accuracy
+    `pip install -U pip setuptools wheel`
+    `pip install -U spacy`
+    `python -m spacy download en_core_web_sm` - efficiency
+    `python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"` - Both models are used offline after this download.
 
-    pip install spacy[lookups,transformers]
+    Optional
+
+    `python -m spacy download en_core_web_trf` - accuracy
+    `pip install spacy[lookups,transformers]`
 
 5. **How To Run**
 
@@ -37,7 +39,7 @@
 
     ### Quick Run Tests
 
-    Open another terminal in the project root directory and activate virtual environment
+    Open another terminal in the `resume_extractor/` directory and activate virtual environment
 
     #### Test Health Endpoint:
 
@@ -47,7 +49,7 @@
 
     #### Text Extraction - PDF/DOCX/OCR:
     
-    `python helpers/text_extraction.py /full/path/to/sample_resume.pdf`
+    `python helpers/text_extraction.py /full/path/to/sample.pdf`
 
     should return extracted text (first ~10k chars). For images, point to a JPG/PNG.
 
@@ -55,7 +57,7 @@
 
     `curl -F "file=@/path/to/some/sample.pdf" http://127.0.0.1:8000/parse`
 
-    should return JSON response `{"Parsed": {data}}` 
+    should return JSON response `{"Parsed": {key:data}}` 
 
     # With Confidence Scores:
     `curl -F "file=@/full/path/to/sample.pdf" "http://127.0.0.1:8000/parse?include_confidence=true"`
