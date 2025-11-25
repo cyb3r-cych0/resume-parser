@@ -125,3 +125,8 @@ Thumbs.db
 
 # Logs
 *.log
+
+# files
+*.pdf
+
+# specials
