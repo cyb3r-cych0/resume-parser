@@ -29,19 +29,31 @@ A web application for parsing and extracting key information from resumes using 
 
 2. **Install dependencies**:
 
-   `pip install -r requirements.txt`
+    Download Python 3.13.x - Compatible with Streamlit
+
+    Create virtual environment 
+
+    `(3.13.7) python -m venv .env`
+
+    `pip install -r requirements.txt`
    
 
 3. **Download spaCy model**:
 
-   `python -m spacy download en_core_web_sm`
+    `pip install -U pip setuptools wheel`
+
+    `pip install -U spacy`
+
+    `python -m spacy download en_core_web_sm` 
+
+    `python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"`
   
 
    If the above fails, download and install manually from the spaCy models page.
 
-## Usage
+## Usage [ Two Terminals ]
 
-### Running the Backend (FastAPI)
+### Running the Backend (FastAPI) [ Terminal A ]
 
 Start the FastAPI server:
 
@@ -49,11 +61,28 @@ Start the FastAPI server:
 
 Or using uvicorn directly:
 
-`uvicorn api:app --host 127.0.0.1 --port 8000 --reload`
+`uvicorn api:app --reload`
 
 The backend will be available at `http://127.0.0.1:8000`.
 
-### Running the Client (Streamlit)
+  #### Health Endpoint Test 0:
+
+  `curl http://127.0.0.1:8000/health`
+
+  `hould return: {"status":"ok"}`
+
+  ### Quick Parse Test 1 -Single-File Parse:
+
+  `curl -F "file=@/path/to/some/sample.pdf" http://127.0.0.1:8000/parse`
+
+  should return JSON response `{"Parsed": {key:data}}` 
+
+  ### Quick Parse Test 2 - With Confidence Scores:
+  `curl -F "file=@/full/path/to/sample.pdf" "http://127.0.0.1:8000/parse?include_confidence=true"`
+
+  should return JSON response `{"Parsed": {key:data}, "confidence":{key:confidence}}` 
+
+### Running the Client (Streamlit) [ Terminal B ]
 
 Start the Streamlit app:
 
@@ -66,15 +95,20 @@ Upload a resume file via the web interface, and the parsed data will be displaye
 ### Tips
 
 - Ensure the backend is running before using the client.
+      `Health check (Streamlit sidebar) should show Backend healthy.`
+
 - For custom API URLs, update `API_URL` in `streamlit_client.py` or set it in `.streamlit/secrets.toml`.
-- Use the health check button in the client to verify backend connectivity.
+
+- Single upload -> parsed JSON should appear.
+
+- Bulk upload -> sequential processing; results downloadable JSON.
 
 ## API Endpoints
 
 ### POST /parse
 Uploads and parses a resume file.
 
-- **Request**: Multipart form-data with file field (PDF, DOCX, or TXT).
+- **Request**: Multipart form-data with file field (PDF, DOCX, TXT) or OCR.
 - **Response**: JSON object containing extracted data.
   `json`
   {
