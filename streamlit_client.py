@@ -61,27 +61,27 @@ with col2:
 st.markdown("---")
 st.header("Bulk upload (multiple files) — sequential")
 bulk = st.file_uploader("Select multiple resumes", accept_multiple_files=True, type=["pdf","docx","txt","png","jpg","jpeg","tiff"])
+# Parallel batch upload button
 if bulk:
-    if st.button("Start bulk upload"):
-        results = []
-        progress = st.progress(0)
-        total = len(bulk)
-        for i, f in enumerate(bulk):
+    if st.button("Start batch upload"):
+        st.write("Running parallel processing...")
+
+        with st.spinner("Processing files in parallel..."):
+            files_for_api = []
+            for f in bulk:
+                files_for_api.append(("files", (f.name, f.getvalue())))
+
             try:
-                files = {"file": (f.name, f.getvalue())}
-                params = {"include_confidence": str(include_conf).lower()}
-                r = requests.post(api_url, files=files, params=params, timeout=180)
+                r = requests.post(api_url.replace("/parse", "/parse/batch"), files=files_for_api, timeout=600)
                 if r.status_code == 200:
-                    j = r.json()
-                    results.append({"file": f.name, "status": "ok", "result": j})
+                    batch_result = r.json()
+                    st.success(f"Processed {batch_result['batch_count']} files")
+                    st.json(batch_result)
+                    st.download_button("Download batch JSON",
+                        data=json.dumps(batch_result, indent=2),
+                        file_name="batch_results.json",
+                        mime="application/json")
                 else:
-                    results.append({"file": f.name, "status": f"error {r.status_code}", "result": r.text})
+                    st.error(f"Batch API error {r.status_code}: {r.text}")
             except Exception as e:
-                results.append({"file": f.name, "status": "exception", "result": str(e)})
-            progress.progress((i+1)/total)
-        st.success("Bulk upload finished")
-        # show summary table and let download aggregated CSV/JSON
-        st.write("Results summary (first 5 shown):")
-        for r in results[:5]:
-            st.write(r["file"], "-", r["status"])
-        st.download_button("Download aggregated JSON", data=json.dumps(results, indent=2), file_name="bulk_results.json", mime="application/json")
+                st.error(f"Batch request failed: {e}")

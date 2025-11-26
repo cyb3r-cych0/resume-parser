@@ -47,11 +47,14 @@ All OCR and NLP operations run locally with zero cloud dependencies.
     - Editable API URL
 - **Bulk Upload Support**:
   - Sequential multiple file uploads with per-resume results and aggregated JSON download.
+  - Now supports **Parallel batch** processing with multi-core OCR for faster throughput.
+  - Supports both **Sequential batch** (existing) and **Parallel batch** (new) modes.
+- **Multi-core OCR Processing**:
+  - Enables parallelized OCR to leverage multiple CPU cores for improved performance.
 - **Modular Architecture**:
   - Clean directory structure with dedicated helper modules for text extraction, section segmentation, field extraction, normalization.
   - Organized main files: api.py, streamlit_client.py.
 - **End-to-End JSON Standardization**:
-  - Final parsed output matches a standardized JSON schema.
 
 - **API Backend**: FastAPI server with CORS enabled for cross-origin requests.
 - **Health Check**: Endpoint to verify backend status.

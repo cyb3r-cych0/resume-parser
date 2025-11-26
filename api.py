@@ -12,12 +12,14 @@ import traceback
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from concurrent.futures import ProcessPoolExecutor
 
 # helper imports (local modules)
 from helpers.text_extraction import extract_text_from_bytes
 from helpers.section_segmentation import split_into_sections
 from helpers.field_extraction import assemble_full_schema
 from helpers.normalization import normalize_schema, confidence_scores
+from helpers.batch_worker import process_single_file
 
 app = FastAPI(title="Resume Extractor - Offline (Integrated)")
 
@@ -77,3 +79,36 @@ async def parse_resume(file: UploadFile = File(...), include_confidence: bool = 
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal error: {e}")
+    
+    
+@app.post("/parse/batch")
+async def parse_batch(files: list[UploadFile] = File(...)):
+    """
+    Parallel batch processing endpoint.
+    Uses ProcessPoolExecutor to process multiple resumes in parallel.
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
+
+    # read all files into memory first
+    payload = []
+    for f in files:
+        contents = await f.read()
+        payload.append((f.filename or "unknown", contents))
+
+    results = []
+    # adjust workers to your CPU (OCR-heavy → keep <= #cores)
+    max_workers = min(4, len(payload))
+
+    try:
+        with ProcessPoolExecutor(max_workers=max_workers) as ex:
+            futures = [
+                ex.submit(process_single_file, filename, data)
+                for filename, data in payload
+            ]
+            for fut in futures:
+                results.append(fut.result())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Batch processing failed: {e}")
+
+    return {"batch_count": len(results), "results": results}
