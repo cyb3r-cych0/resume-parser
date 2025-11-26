@@ -132,3 +132,4 @@ Thumbs.db
 # specials
 copy
 data/
+*.db
