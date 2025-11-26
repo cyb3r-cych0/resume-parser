@@ -7,6 +7,8 @@
 - Normalizes values (years, GPA) and returns optional confidence scores
 - Returns final JSON
 """
+# DB imports
+from fastapi import Query
 
 import traceback
 from fastapi import FastAPI, File, UploadFile, HTTPException
@@ -20,6 +22,11 @@ from helpers.section_segmentation import split_into_sections
 from helpers.field_extraction import assemble_full_schema
 from helpers.normalization import normalize_schema, confidence_scores
 from helpers.batch_worker import process_single_file
+from helpers.db import init_db, save_parsed_result, get_record, list_records, DB_PATH
+from helpers.db import save_parsed_result
+
+# initialize DB file (creates tables if missing)
+init_db()
 
 app = FastAPI(title="Resume Extractor - Offline (Integrated)")
 
@@ -34,8 +41,23 @@ app.add_middleware(
 def health():
     return {"status": "ok"}
 
+@app.get("/records")
+def api_list_records(limit: int = 50, offset: int = 0):
+    """
+    List saved parse records (summary).
+    """
+    return {"count": len(list_records(limit=limit, offset=offset)), "results": list_records(limit=limit, offset=offset)}
+
+@app.get("/records/{record_id}")
+def api_get_record(record_id: int):
+    rec = get_record(record_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Record not found")
+    return rec
+
+
 @app.post("/parse")
-async def parse_resume(file: UploadFile = File(...), include_confidence: bool = False):
+async def parse_resume(file: UploadFile = File(...), include_confidence: bool = False, save: bool = Query(False)):
     """
     Full offline parsing pipeline:
       1) extract text (pdf/docx/image) with OCR fallback
@@ -72,6 +94,15 @@ async def parse_resume(file: UploadFile = File(...), include_confidence: bool = 
         if include_confidence:
             result["confidence"] = confidence_scores(normalized, raw_text)
 
+        # Save to DB if query param save=true
+        if save:
+            try:
+                rec_id = save_parsed_result(file.filename or "unknown", normalized, status="ok", source="api")
+                result["db_id"] = rec_id
+            except Exception as e:
+                # do not fail the response if DB save fails; include warning
+                result["db_save_error"] = str(e)
+
         return JSONResponse(content=result)
 
     except HTTPException:
@@ -82,7 +113,7 @@ async def parse_resume(file: UploadFile = File(...), include_confidence: bool = 
     
     
 @app.post("/parse/batch")
-async def parse_batch(files: list[UploadFile] = File(...)):
+async def parse_batch(files: list[UploadFile] = File(...), save: bool = Query(False)):
     """
     Parallel batch processing endpoint.
     Uses ProcessPoolExecutor to process multiple resumes in parallel.
@@ -107,7 +138,15 @@ async def parse_batch(files: list[UploadFile] = File(...)):
                 for filename, data in payload
             ]
             for fut in futures:
-                results.append(fut.result())
+                r = fut.result()               # <-- get result correctly
+                # Save each successful parsed record if requested (or auto-save)
+                if r.get("status") == "ok":
+                    try:
+                        rec_id = save_parsed_result(r.get("file"), r.get("parsed"), status="ok", source="batch")
+                        r["db_id"] = rec_id
+                    except Exception as e:
+                        r["db_save_error"] = str(e)
+                results.append(r)             # <-- append the result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Batch processing failed: {e}")
 
