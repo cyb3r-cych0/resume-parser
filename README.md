@@ -1,21 +1,58 @@
 # Resume Parser
 
-A web application for parsing and extracting key information from resumes using Natural Language Processing (NLP). The project consists of a FastAPI backend for processing uploaded resume files (PDF, DOCX, TXT) and a Streamlit client for a user-friendly web interface.
+A comprehensive, fully offline end-to-end resume parsing and extraction system.
+
+Supports multiple resume formats: PDF, DOCX, TXT, as well as scanned images like JPG, PNG, and TIFF.
+
+All OCR and NLP operations run locally with zero cloud dependencies.
 
 ## Features
 
-- **Resume Parsing**: Extracts structured data from resumes including:
-  - Name
-  - Email addresses
-  - Phone numbers
-  - URLs
-  - GitHub and LinkedIn handles
-  - Organizations/Companies
-  - Skills (from a predefined list)
-  - Top frequent terms
-- **File Support**: Supports PDF, DOCX, and TXT file formats.
-- **NLP-Powered**: Uses spaCy with the `en_core_web_sm` model for entity recognition.
-- **Web Interface**: Streamlit-based client for easy file upload and result viewing.
+- **Fully Offline Extraction**:
+  - Works on PDFs, DOCX, TXT, JPG, PNG, TIFF files.
+  - Local OCR and natural language processing, no cloud.
+- **Advanced OCR Support**:
+  - Automatic fallback to OCR when native text extraction fails.
+  - Uses Tesseract OCR and Poppler for PDF image processing.
+  - Includes pre-processing pipeline: grayscale, noise reduction, auto-contrast, binarization.
+- **Format-Aware Text Extraction**:
+  - Native PDF parsing with pdfplumber.
+  - DOCX parsing using python-docx.
+  - OCR-based text extraction from images (pytesseract).
+  - Auto type detection via filename or python-magic.
+- **Intelligent Section Segmentation**:
+  - Logical text splitting via heading detection and fuzzy matching (RapidFuzz).
+  - Supports sections like Education, Experience, Skills, Certifications, Publications, Achievements, Extracurricular Activities, Test Scores, Summary/Objective, and fallback Other.
+- **Comprehensive Academic Data Extraction**:
+  - Extracts High School, Undergraduate, Postgraduate details.
+  - Fields like institution, address heuristic, GPA or percentage with scale, board/university, graduation year, degree, and major.
+- **Detailed Work Experience Extraction**:
+  - Splits experience entries and extracts job title, organization, date ranges, and experience details.
+- **Certifications & Achievements Extraction**:
+  - Detects certificates, awards, and short achievements from text.
+- **Research Publications Extraction**:
+  - Uses heuristics to detect academic publications (quotes, journal keywords).
+- **Standardized Test Score Extraction**:
+  - Captures SAT, ACT, GRE, GMAT, TOEFL, IELTS scores.
+- **Advanced Normalization Layer**:
+  - Cleans whitespace, normalizes GPA scales (auto-inferred), percentages, graduation years, and lists (activities, achievements, certifications).
+- **Confidence Scoring (Optional)**:
+  - Provides confidence values (0–1) for various extracted fields such as name, email, phone, education years, GPA.
+- **Streamlit Client**:
+  - Full offline UI for:
+    - Single resume upload
+    - Bulk multi-file upload
+    - Parsed JSON display and download
+    - Backend health check
+    - Editable API URL
+- **Bulk Upload Support**:
+  - Sequential multiple file uploads with per-resume results and aggregated JSON download.
+- **Modular Architecture**:
+  - Clean directory structure with dedicated helper modules for text extraction, section segmentation, field extraction, normalization.
+  - Organized main files: api.py, streamlit_client.py.
+- **End-to-End JSON Standardization**:
+  - Final parsed output matches a standardized JSON schema.
+
 - **API Backend**: FastAPI server with CORS enabled for cross-origin requests.
 - **Health Check**: Endpoint to verify backend status.
 
@@ -23,128 +60,129 @@ A web application for parsing and extracting key information from resumes using 
 
 1. **Clone the repository**:
    
-  `git clone https://github.com/cyb3r-cych0/resume-parser.git`
-
-   `cd resume-parser`
+   ```bash
+   git clone https://github.com/cyb3r-cych0/resume-parser.git
+   cd resume-parser
+   ```
 
 2. **Install dependencies**:
 
-    Download Python 3.13.x - Compatible with Streamlit
+    Python 3.13.x is recommended (compatible with Streamlit).
 
-    Create virtual environment 
+    Create a virtual environment:
 
-    `(3.13.7) python -m venv .env`
+    ```bash
+    python -m venv .env
+    ```
 
-    `pip install -r requirements.txt`
-   
+### On Windows
 
-3. **Download spaCy model**:
+- To install dependencies on Windows, run the batch file `install_requirements.bat` in Windows Terminal:
 
-    `pip install -U pip setuptools wheel`
+  ```bash
+  cd c:\path\to\resume-parser
+  install_requirements.bat
+  ```
 
-    `pip install -U spacy`
+### On Unix/Linux/macOS (Git Bash, WSL, MinGW, or native Unix shells)
 
-    `python -m spacy download en_core_web_sm` 
+- To install dependencies on Unix-like systems, use `make`:
 
-    `python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"`
-  
+  ```bash
+  cd /path/to/resume-parser
+  make
+  ```
 
-   If the above fails, download and install manually from the spaCy models page.
+3. **Additional spaCy model download (if not included in makefile or batch script):**
 
-## Usage [ Two Terminals ]
+   ```bash
+   pip install -U pip setuptools wheel
+   pip install -U spacy
+   python -m spacy download en_core_web_sm
+   python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+   ```
 
-### Running the Backend (FastAPI) [ Terminal A ]
+## Usage [Run Backend and Client in Separate Terminals]
+
+### Running the Backend (FastAPI) [Terminal A]
 
 Start the FastAPI server:
 
-`python api.py`
+```bash
+python api.py
+```
 
-Or using uvicorn directly:
+Or with uvicorn directly:
 
-`uvicorn api:app --reload`
+```bash
+uvicorn api:app --reload
+```
 
-The backend will be available at `http://127.0.0.1:8000`.
+The backend will be available at [http://127.0.0.1:8000](http://127.0.0.1:8000).
 
-  #### Health Endpoint Test 0:
+Test backend health:
 
-  `curl http://127.0.0.1:8000/health`
+```bash
+curl http://127.0.0.1:8000/health
+```
 
-  `hould return: {"status":"ok"}`
+Should return: `{"status":"ok"}`
 
-  ### Quick Parse Test 1 -Single-File Parse:
+### Quick Parse Test - Single File:
 
-  `curl -F "file=@/path/to/some/sample.pdf" http://127.0.0.1:8000/parse`
+```bash
+curl -F "file=@/path/to/sample.pdf" http://127.0.0.1:8000/parse
+```
 
-  should return JSON response `{"Parsed": {key:data}}` 
+### Quick Parse Test - With Confidence Scores:
 
-  ### Quick Parse Test 2 - With Confidence Scores:
-  `curl -F "file=@/full/path/to/sample.pdf" "http://127.0.0.1:8000/parse?include_confidence=true"`
+```bash
+curl -F "file=@/path/to/sample.pdf" "http://127.0.0.1:8000/parse?include_confidence=true"
+```
 
-  should return JSON response `{"Parsed": {key:data}, "confidence":{key:confidence}}` 
-
-### Running the Client (Streamlit) [ Terminal B ]
+### Running the Client (Streamlit) [Terminal B]
 
 Start the Streamlit app:
 
-`streamlit run streamlit_client.py`
+```bash
+streamlit run streamlit_client.py
+```
 
-The client will be available at `http://localhost:8501`.
+Open [http://localhost:8501](http://localhost:8501) in your browser.
 
-Upload a resume file via the web interface, and the parsed data will be displayed as JSON. You can also download the parsed results.
+Upload a resume file via the interface and view or download parsed results.
 
-### Tips
+## Tips
 
 - Ensure the backend is running before using the client.
-      `Health check (Streamlit sidebar) should show Backend healthy.`
-
-- For custom API URLs, update `API_URL` in `streamlit_client.py` or set it in `.streamlit/secrets.toml`.
-
-- Single upload -> parsed JSON should appear.
-
-- Bulk upload -> sequential processing; results downloadable JSON.
+- Health check (via Streamlit sidebar) should confirm backend connectivity.
+- Adjust API URLs in `streamlit_client.py` or `.streamlit/secrets.toml` as needed.
+- Supports single file upload or bulk sequential uploads.
 
 ## API Endpoints
 
 ### POST /parse
-Uploads and parses a resume file.
 
-- **Request**: Multipart form-data with file field (PDF, DOCX, TXT) or OCR.
-- **Response**: JSON object containing extracted data.
-  `json`
-  {
-    
-    name: John Doe,
-    emails: [john.doe@example.com],
-    phones: [+1-123-456-7890],
-    linkedin_handles: [johndoe],
-    github_handles: [johndoe],
-    urls\: [https://example.com],
-    organizations\: [ABCCorp],
-    skills: [python, machine learning],
-    top_terms: [data, analysis, python],
-    raw_text_head: First 40 lines of extracted text...
-  }
+Upload and parse resume files (PDF, DOCX, TXT).
+
+- Request: Multipart form-data with `file` field.
+- Response: JSON with extracted resume data.
 
 ### GET /health
-Checks the health of the backend.
 
-- **Response**: `{status: ok}`
+Backend health check.
 
-## Configuration
-
-- **Secrets**: Edit `.streamlit/secrets.toml` to configure API keys or custom settings (e.g., Google API key placeholder).
-- **CORS**: The backend allows requests from `http://localhost:8501` and `http://127.0.0.1:8501\`by default. Modify in `api.py` if needed.
+- Response: `{"status": "ok"}`
 
 ## Contributing
 
-Contributions are welcome! Please fork the repository and submit a pull request for any improvements or bug fixes.
+Contributions welcome! Please fork and submit pull requests.
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+MIT License. See the [LICENSE](LICENSE) file.
 
 ## Author
 
-Name: `cyb3r-cych0`
-Email: `minigates21@gmail.com`
-
+cyb3r-cych0  
+Email: minigates21@gmail.com
