@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Multi-core OCR processing
+Multicore OCR processing
 Worker function for parallel batch processing.
 Each worker runs the full pipeline on one file.
 """
