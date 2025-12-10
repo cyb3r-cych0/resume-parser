@@ -110,8 +110,11 @@ All OCR and NLP operations run locally with zero cloud dependencies.
     python -m spacy download en_core_web_trf #  accuracy (slower)
     python -m spacy download en_core_web_lg #  speed (less accurate)
    ```
-## Usage [Run Backend and Client in Separate Terminals]
+## Usage [Initialize Database & Run Backend and Client in Separate Terminals]
 
+```bash
+  python initialize_db.py
+```
 ### Running the Backend (FastAPI) [Terminal A]
 
 Start the FastAPI server:

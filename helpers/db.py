@@ -14,9 +14,9 @@ from sqlalchemy import (
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-DB_DIR = os.path.join(os.getcwd(), "data")
+DB_DIR = os.path.join(os.getcwd(), "database")
 os.makedirs(DB_DIR, exist_ok=True)
-DB_PATH = os.path.join(DB_DIR, "resume_results.db")
+DB_PATH = os.path.join(DB_DIR, "parsed_resumes.db")
 SQLITE_URL = f"sqlite:///{DB_PATH}"
 
 engine = create_engine(SQLITE_URL, connect_args={"check_same_thread": False}, echo=False)

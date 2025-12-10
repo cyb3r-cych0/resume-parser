@@ -37,7 +37,7 @@ def system_status(api_base):
     except Exception:
         status["api_ready"] = False
     try:
-        conn = sqlite3.connect("data/parsed_resumes.db")  # adjust if your DB file has diff name
+        conn = sqlite3.connect("database/parsed_resumes.db")
         conn.execute("SELECT name FROM sqlite_master LIMIT 1;")
         conn.close()
         status["db_ready"] = True

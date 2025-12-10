@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Run this once (from project root, in the env)
-This creates data/resume_results.db.
+This creates database/parsed_resumes.db.
 """
 from helpers.db import init_db
 init_db()
-print("DB initialized at data/resume_results.db")
+print("DB initialized at database/parsed_resumes.db")
