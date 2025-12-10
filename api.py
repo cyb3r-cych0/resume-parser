@@ -31,7 +31,7 @@ from helpers.batch_worker import process_single_file
 from helpers.db import init_db, save_parsed_result, get_record, get_raw_bytes, list_records
 from helpers.db import delete_record
 
-app = FastAPI(title="Parse API", version="0.1.0")
+app = FastAPI(title="Parsely-API", version="0.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -50,7 +50,7 @@ def startup_event():
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": "0.1.0"}
+    return {"status": "ok", "version": "0.2.0"}
 
 @app.delete("/records/{record_id}")
 def api_delete_record(record_id: int):

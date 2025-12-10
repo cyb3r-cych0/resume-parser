@@ -30,3 +30,6 @@ resume_dataset/
 
 # SQLite3 database
 data/resume_results.db
+
+#Local
+streamlit_client.py

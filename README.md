@@ -104,7 +104,12 @@ All OCR and NLP operations run locally with zero cloud dependencies.
    python -m spacy download en_core_web_sm
    python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
    ```
-
+   OR
+4. Alternatively, you can choose a spaCy model that works best with your needs(speed &/ accuracy)
+  ```bash
+    python -m spacy download en_core_web_trf #  accuracy (slower)
+    python -m spacy download en_core_web_lg #  speed (less accurate)
+   ```
 ## Usage [Run Backend and Client in Separate Terminals]
 
 ### Running the Backend (FastAPI) [Terminal A]
@@ -148,7 +153,7 @@ curl -F "file=@/path/to/sample.pdf" "http://127.0.0.1:8000/parse?include_confide
 Start the Streamlit app:
 
 ```bash
-streamlit run streamlit_client.py
+streamlit run main.py
 ```
 
 Open [http://localhost:8501](http://localhost:8501) in your browser.
@@ -163,6 +168,10 @@ Upload a resume file via the interface and view or download parsed results.
 - Supports single file upload or bulk sequential uploads.
 
 ## API Endpoints
+- Homepage (main) - http://localhost:8501/
+- Parse Single File - http://localhost:8501/Parse_Single
+- Pass Batch/Bulk Files - http://localhost:8501/Parse_Batch
+- View Database - http://localhost:8501/Database_Records
 
 ### POST /parse
 
