@@ -4,6 +4,7 @@ stores raw file bytes (BLOB) and exposes helpers to save/get records.
 """
 import os
 import json
+import sqlite3
 from datetime import datetime
 from typing import Optional, Dict, Any
 
@@ -31,13 +32,35 @@ class ResumeRecord(Base):
     raw_file = Column(LargeBinary, nullable=True)   # raw uploaded bytes
     status = Column(String(50), nullable=True)
     error = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
     source = Column(String(50), nullable=True)
     saved = Column(Boolean, default=True)
 
 
 def init_db():
+    """
+    Initialize DB tables for SQLAlchemy models and create the
+    lightweight hash_cache table used by the SHA256 caching layer.
+    """
+    # create tables declared via SQLAlchemy ORM
     Base.metadata.create_all(bind=engine)
+    # ensure the hash_cache table exists (use sqlite3 directly)
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS hash_cache (
+                hash TEXT PRIMARY KEY,
+                parsed_json TEXT,
+                resume_quality REAL,
+                confidence_json TEXT
+            )
+        """)
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        # don't crash startup on DB creation issues; log to stdout for now
+        print("init_db: failed to create hash_cache table:", e)
 
 
 def save_parsed_result(filename: str, parsed_obj: Optional[Dict[str, Any]],
@@ -105,5 +128,47 @@ def list_records(limit: int = 50, offset: int = 0):
                 "source": rec.source,
             })
         return out
+    finally:
+        db.close()
+
+
+def save_hash_cache(hash_value, parsed, resume_score, conf_pct):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        INSERT OR REPLACE INTO hash_cache(hash, parsed_json, resume_quality, confidence_json)
+        VALUES (?, ?, ?, ?)
+    """, (hash_value, json.dumps(parsed), float(resume_score or 0.0), json.dumps(conf_pct or {})))
+    conn.commit()
+    conn.close()
+
+
+def get_record_by_hash(hash_value):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT parsed_json, resume_quality, confidence_json FROM hash_cache WHERE hash = ?", (hash_value,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "parsed": json.loads(row[0]),
+        "resume_quality_score": row[1],
+        "confidence_percentage": json.loads(row[2]),
+    }
+
+
+def delete_record(record_id: int) -> bool:
+    """
+    Delete a ResumeRecord by id. Returns True if deleted, False if not found.
+    """
+    db = SessionLocal()
+    try:
+        rec = db.query(ResumeRecord).filter(ResumeRecord.id == record_id).first()
+        if not rec:
+            return False
+        db.delete(rec)
+        db.commit()
+        return True
     finally:
         db.close()

@@ -8,7 +8,6 @@ Normalization utilities:
 
 Used after field extraction and before returning final JSON.
 """
-
 import re
 import dateparser
 from typing import Dict, Any
@@ -21,7 +20,6 @@ def clean_whitespace(text: str) -> str:
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
-
 def normalize_year(year_str: str) -> str:
     """
     Normalize graduation year into YYYY.
@@ -33,13 +31,11 @@ def normalize_year(year_str: str) -> str:
     m = YEAR_RE.search(year_str)
     if m:
         return m.group(0)
-
     # Try dateparser on general input
     dt = dateparser.parse(year_str)
     if dt:
         return str(dt.year)
     return ""
-
 
 def normalize_gpa_or_percentage(value: str, scale: str) -> (str, str):
     """
@@ -49,7 +45,6 @@ def normalize_gpa_or_percentage(value: str, scale: str) -> (str, str):
     """
     if not value:
         return "", ""
-
     # Percentage case
     if "%" in scale or "%" in value:
         value = value.replace("%", "").strip()
@@ -58,13 +53,11 @@ def normalize_gpa_or_percentage(value: str, scale: str) -> (str, str):
             return value, "%"
         except Exception:
             return value, "%"
-
     # GPA case
     try:
         v = float(value)
     except Exception:
         return value, scale
-
     # If no scale, infer from typical ranges
     if not scale:
         if v <= 4.5:
@@ -73,9 +66,7 @@ def normalize_gpa_or_percentage(value: str, scale: str) -> (str, str):
             scale = "10"
         else:
             scale = ""
-
     return value, scale
-
 
 def normalize_schema(final_data: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -138,50 +129,96 @@ def normalize_schema(final_data: Dict[str, Any]) -> Dict[str, Any]:
                     # clean all dict values
                     cleaned.append({k: clean_whitespace(str(v)) for k, v in item.items()})
             final_data[lf] = cleaned
-
     return final_data
 
-
-def confidence_scores(final_data: Dict[str, Any], raw_text: str) -> Dict[str, float]:
+def confidence_scores(final_data: Dict[str, Any], raw_text: str) -> Dict[str, Any]:
     """
-    Returns simple confidence scores (0 to 1) for certain fields.
-    This is *optional*. 
-    You can integrate this later into API response if needed.
-
-    Heuristic scoring:
-      name: score by number of tokens + capitalization
-      email/phone: high if found by regex
-      education fields: moderate if matched by pattern
+    Returns:
+        {
+            "raw_scores": {field: 0–1},
+            "percentage_scores": {field: 0–100},
+            "overall_quality_score": float (0–100)
+        }
+    The score system is intentionally simple:
+    - 1.0  → Very confident extraction
+    - 0.7  → Reasonable confidence (pattern matched)
+    - 0.4  → Weak confidence (minimal detection)
+    - 0.0  → Missing
     """
     scores = {}
-
-    # name confidence
+    # ---- NAME ----
     name = final_data.get("name", "")
     if name:
         tokens = name.split()
+        caps = sum(1 for t in tokens if t and t[0].isupper())
         if len(tokens) >= 2:
-            # heuristic: higher confidence for two+ capitalized tokens
-            caps = sum(1 for t in tokens if t[0].isupper())
-            scores["name"] = min(1.0, 0.5 + 0.1 * caps)
+            scores["name"] = min(1.0, 0.5 + (caps * 0.15))
         else:
             scores["name"] = 0.4
     else:
         scores["name"] = 0.0
 
-    # email confidence
+    # ---- EMAIL ----
     scores["email"] = 1.0 if final_data.get("email") else 0.0
 
-    # phone confidence
-    scores["phoneNumber"] = 0.8 if final_data.get("phoneNumber") else 0.0
+    # ---- PHONE ----
+    scores["phoneNumber"] = 0.9 if final_data.get("phoneNumber") else 0.0
 
-    # years
+    # ---- EDUCATION YEARS ----
     for key in final_data.keys():
         if "GraduationYear" in key:
             scores[key] = 0.8 if final_data[key] else 0.0
 
-    # gpa fields
+    # ---- GPA ----
     for key in final_data.keys():
         if "GpaOrPercentage" in key:
-            scores[key] = 0.7 if final_data[key] else 0.0
+            scores[key] = 0.75 if final_data[key] else 0.0
 
-    return scores
+    # ---- DEGREES / MAJORS (UG & PG) ----
+    academic_keys = ["ugDegree", "ugMajor", "pgDegree", "pgMajor"]
+    for k in academic_keys:
+        scores[k] = 0.85 if final_data.get(k) else 0.0
+
+    # ---- COLLEGE / UNIVERSITY NAMES ----
+    org_fields = ["ugCollegeName", "pgCollegeName", "ugUniversity", "pgUniversity"]
+    for k in org_fields:
+        scores[k] = 0.9 if final_data.get(k) else 0.0
+
+    # ---- WORK EXPERIENCE ----
+    # Each block gets averaged internally
+    exp_list = final_data.get("workExperience", [])
+    if exp_list:
+        exp_scores = []
+        for entry in exp_list:
+            local_score = 0
+            if entry.get("title"): local_score += 0.35
+            if entry.get("organization"): local_score += 0.35
+            if entry.get("startYear"): local_score += 0.15
+            if entry.get("endYear"): local_score += 0.15
+            exp_scores.append(min(1.0, local_score))
+        scores["workExperience"] = sum(exp_scores) / len(exp_scores)
+    else:
+        scores["workExperience"] = 0.0
+
+    # ---- CERTIFICATIONS, ACHIEVEMENTS, PUBLICATIONS ----
+    list_fields = ["certifications", "achievements", "researchPublications"]
+    for lf in list_fields:
+        arr = final_data.get(lf, [])
+        if arr:
+            # more items → higher confidence, capped at 1.0
+            scores[lf] = min(1.0, 0.4 + 0.15 * len(arr))
+        else:
+            scores[lf] = 0.0
+
+    # ----- Convert to percentages -----
+    percentage_scores = {k: round(v * 100, 1) for k, v in scores.items()}
+
+    # ----- Overall quality score -----
+    numeric_vals = [v for v in scores.values() if isinstance(v, float)]
+    overall_quality = (sum(numeric_vals) / len(numeric_vals) * 100) if numeric_vals else 0.0
+
+    return {
+        "raw_scores": scores,
+        "percentage_scores": percentage_scores,
+        "overall_quality_score": round(overall_quality, 2),
+    }
