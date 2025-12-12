@@ -2,9 +2,9 @@
 """
 Simple layout/heading detector and section splitter.
 Detects headings and split the raw text into:
- - Education / 
+ - Education /
  - Experience /
- - Certifications / 
+ - Certifications /
  - Tests /
 
 Returns a normalized dict you’ll use for field extraction.
@@ -17,184 +17,146 @@ Usage:
 Section segmentation with embedding-based heading classification.
 Graceful fallback to regex heading detection if sentence-transformers not installed.
 """
+
 import re
-from typing import Dict, List
-from collections import defaultdict
+from collections import OrderedDict
+from difflib import SequenceMatcher
 
-# Lazy import for sentence-transformers
-_MODEL = None
-_EMBEDDINGS = None
+# Optional embedding support: only used if sentence-transformers is installed and available locally.
+try:
+    from sentence_transformers import SentenceTransformer
+    _SENTENCE_EMBED_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
+    _USE_EMBED = True
+except Exception:
+    _SENTENCE_EMBED_MODEL = None
+    _USE_EMBED = False
+
+# canonical headings map (expand as needed)
 _CANONICAL_HEADINGS = {
-    "education": ["education", "academic", "academic background", "education and qualifications", "education & qualifications", "education & training"],
-    "experience": ["experience", "work experience", "professional experience", "employment history", "work history"],
-    "skills": ["skills", "technical skills", "skills & technologies", "key skills"],
-    "certifications": ["certifications", "certificates", "professional certifications"],
-    "publications": ["publications", "research", "papers", "research publications"],
-    "achievements": ["achievements", "awards", "honors", "distinctions"],
-    "extracurricular": ["extracurricular", "extra-curricular", "activities", "interests", "extracurricular activities"],
-    "test_scores": ["test scores", "scores", "standardized tests", "exams"],
-    "summary": ["summary", "profile", "professional summary", "objective", "career objective"],
-    "contact": ["contact", "contact information", "personal details"]
+    "contact": ["contact", "contact information", "personal info", "contact details"],
+    "summary": ["summary", "professional summary", "profile", "about me", "career summary"],
+    "education": ["education", "academic background", "educational background", "education & qualifications"],
+    "experience": ["experience", "work experience", "professional experience", "employment history", "experience & roles"],
+    "skills": ["skills", "technical skills", "key skills", "competencies"],
+    "projects": ["projects", "relevant projects"],
+    "certifications": ["certifications", "certificates", "licenses"],
+    "publications": ["publications", "research", "papers"],
+    "achievements": ["achievements", "honors", "awards"],
+    "extracurricular": ["extra curricular", "extracurricular activities", "activities"],
+    "test_scores": ["test scores", "exams", "scores"],
+    "languages": ["languages", "language proficiency"],
+    "interests": ["interests", "hobbies"]
 }
 
-def _init_embedding_model():
-    global _MODEL, _EMBEDDINGS, _CANONICAL_LABELS
-    if _MODEL is not None:
-        return
-    try:
-        from sentence_transformers import SentenceTransformer, util
-        _MODEL = SentenceTransformer("all-MiniLM-L6-v2")
-        # precompute canonical heading embeddings
-        all_canonical = []
-        for k, variants in _CANONICAL_HEADINGS.items():
-            # store canonical label + some variants
-            all_canonical.append(("__label__"+k, " ; ".join(variants)))
-        texts = [t for (_, t) in all_canonical]
-        _EMBEDDINGS = _MODEL.encode(texts, convert_to_tensor=True)
-        _CANONICAL_LABELS = [lbl for (lbl, _) in all_canonical]
-        # store labels on the model too for later lookup
-        _MODEL._labels = _CANONICAL_LABELS
-    except Exception:
-        _MODEL = None
-        _EMBEDDINGS = None
-        _CANONICAL_LABELS = []
+# Flatten canonical variants for quick lookup
+_CANON_FLAT = {v: k for k, variants in _CANONICAL_HEADINGS.items() for v in variants}
 
-def _score_and_label_heading(heading_text: str):
+def _clean_line(s: str) -> str:
+    s = s.strip()
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+def _fuzzy_score(a: str, b: str) -> float:
+    # normalized ratio 0..1
+    return SequenceMatcher(None, a.lower(), b.lower()).ratio()
+
+def _best_heading_match(candidate: str, threshold=0.75):
     """
-    Returns canonical label (e.g., 'education') and similarity score.
-    If model not available, returns (None, 0.0).
+    Returns canonical key name (e.g., 'education') if candidate matches any known heading,
+    otherwise returns None. Tries exact / substring / fuzzy / embedding (if available).
     """
-    _init_embedding_model()
-    if not _MODEL:
-        return None, 0.0
-    from sentence_transformers import util
-    q_emb = _MODEL.encode(heading_text, convert_to_tensor=True)
-    sims = util.cos_sim(q_emb, _EMBEDDINGS)  # shape (1, N)
-    best_idx = int(sims.argmax())
-    best_score = float(sims[0][best_idx])
-    label_token = _MODEL._labels[best_idx]
-    label = label_token.replace("__label__", "")
-    return label, best_score
+    if not candidate:
+        return None
+    c = candidate.lower()
+    # exact or contains
+    for variant, key in _CANON_FLAT.items():
+        if variant in c or c in variant:
+            return key
 
-# --- regex based fallback heading detection (older approach) ---
-HEADING_KEYS = {
-    "education": r"(education|academic|qualification|degree)",
-    "experience": r"(experience|employment|work history|professional experience)",
-    "skills": r"(skills|technical skills|competenc)",
-    "certifications": r"(certif|certificate)",
-    "publications": r"(publication|paper|journal|conference)",
-    "achievements": r"(award|achievement|honor|distinction)",
-    "extracurricular": r"(extracurricular|activities|interests)",
-    "test_scores": r"(toefl|ielts|gre|gmat|sat|act|test score|scores)",
-    "summary": r"(summary|objective|profile)",
-    "contact": r"(contact|personal details|address|phone)"
-}
+    # fuzzy compare against variants
+    best = (None, 0.0)
+    for variant, key in _CANON_FLAT.items():
+        score = _fuzzy_score(c, variant)
+        if score > best[1]:
+            best = (key, score)
+            if score >= threshold:
+                return key
 
-HEADING_RE = re.compile(r"^[A-Z][A-Za-z\s\&\-]{2,60}$")
+    # fallback to embedding similarity if available
+    if _USE_EMBED and len(candidate.split()) <= 6:  # short headings only
+        try:
+            cand_emb = _SENTENCE_EMBED_MODEL.encode([candidate], convert_to_numpy=True)[0]
+            # compare against each canonical phrase (compute embeddings lazily)
+            # build cache on module-level to avoid repeated computations
+            if not hasattr(_best_heading_match, "_emb_cache"):
+                _best_heading_match._emb_cache = {}
+                for variant in _CANON_FLAT.keys():
+                    _best_heading_match._emb_cache[variant] = _SENTENCE_EMBED_MODEL.encode([variant], convert_to_numpy=True)[0]
+            best_emb = (None, -1.0)
+            for variant, emb in _best_heading_match._emb_cache.items():
+                # cosine similarity
+                import numpy as _np
+                sim = float((_np.dot(cand_emb, emb) / (_np.linalg.norm(cand_emb) * _np.linalg.norm(emb) + 1e-12)))
+                if sim > best_emb[1]:
+                    best_emb = (_CANON_FLAT[variant], sim)
+            if best_emb[1] > 0.62:
+                return best_emb[0]
+        except Exception:
+            pass
 
-def split_into_sections(text: str) -> Dict[str, str]:
+    # no good match
+    return None
+
+def split_into_sections(text: str) -> OrderedDict:
     """
-    Splits raw text into sections. Uses embedding-based heading classification when available.
-    Returns dict keyed by canonical sections and a 'top' / 'other' fallback.
+    Robustly split resume text into sections keyed by canonical heading names or detected headings.
+    Returns OrderedDict({heading_name_or_text: block_text})
     """
     if not text or not text.strip():
-        return {}
+        return OrderedDict()
 
-    lines = [ln.rstrip() for ln in text.splitlines()]
-    # merge into paragraphs by blank-line separation for candidate headings
-    paragraphs = []
-    cur = []
-    for ln in lines:
-        if ln.strip() == "":
-            if cur:
-                paragraphs.append("\n".join(cur).strip())
-                cur = []
-        else:
-            cur.append(ln)
-    if cur:
-        paragraphs.append("\n".join(cur).strip())
+    lines = [ _clean_line(l) for l in text.splitlines() ]
+    # remove empty lines but keep a short placeholder (we want line positions)
+    lines = [l for l in lines if l]
 
-    # Candidate headings detection: a paragraph that's short (<=6 words) and either matches heading regex
-    candidates = []
-    for i, p in enumerate(paragraphs):
-        words = p.split()
-        lowp = p.lower()
-        if len(words) <= 6 and len(p) <= 60:
-            # treat as heading candidate
-            # check heading pattern OR any canonical heading keyword (iterating the list variants)
-            if HEADING_RE.match(p) or any(k in lowp for variants in _CANONICAL_HEADINGS.values() for k in variants):
-                candidates.append((i, p))
+    sections = OrderedDict()
+    current_heading = "header"   # default top area
+    sections[current_heading] = []
 
-    # If no candidates, fallback: try line-level heading detection (short uppercase-ish lines)
-    if not candidates:
-        for i, p in enumerate(paragraphs):
-            first_line = p.splitlines()[0]
-            if HEADING_RE.match(first_line):
-                candidates.append((i, first_line))
+    for i, line in enumerate(lines):
+        # heuristics: short lines with <= 6 words and less than ~60 chars are likely headings
+        word_count = len(line.split())
+        is_caps = (line.isupper() and word_count <= 8)
+        is_short = (word_count <= 6 and len(line) <= 60)
+        has_colon = (line.endswith(":") or ":" in line[:20])
+        # treat lines that look like bullets as content
+        is_bullet = bool(re.match(r"^[-•\u2022\*]\s+", line))
 
-    # classify each candidate
-    sections = defaultdict(list)
-    assigned_indices = set()
-    for idx, heading in candidates:
-        label, score = _score_and_label_heading(heading)
-        if label and score >= 0.45:
-            # strong semantic match
-            sections[label].append(idx)
-            assigned_indices.add(idx)
-        else:
-            # regex fallback: check HEADING_KEYS
-            low = heading.lower()
-            found = False
-            for k, r in HEADING_KEYS.items():
-                if re.search(r, low):
-                    sections[k].append(idx)
-                    assigned_indices.add(idx)
-                    found = True
-                    break
-            if not found:
-                # leave unassigned for 'other'
-                pass
-
-    # Now build section text by gathering paragraphs between headings
-    result = {}
-    # create a mapping from index to canonical section label (first label if multiple)
-    idx2label = {}
-    for label, idxs in sections.items():
-        for i in idxs:
-            idx2label[i] = label
-
-    # If we have any headings, walk through paragraphs and aggregate content into sections
-    if idx2label:
-        current_label = "top"
-        for i, p in enumerate(paragraphs):
-            if i in idx2label:
-                current_label = idx2label[i]
-                # initialize if first time
-                result.setdefault(current_label, "")
-                # remove heading from body (we'll not include heading text as content)
+        candidate = None
+        if (is_short or is_caps or has_colon) and not is_bullet:
+            # sanitize candidate (strip trailing colon)
+            candidate = line.rstrip(":").strip()
+            # try to map to canonical
+            mapped = _best_heading_match(candidate)
+            if mapped:
+                # push current accumulated lines to sections
+                current_heading = mapped
+                sections.setdefault(current_heading, [])
                 continue
-            result.setdefault(current_label, "")
-            # append paragraph content
-            result[current_label] = (result[current_label] + "\n\n" + p).strip()
-    else:
-        # fallback: naive split into top + other
-        joined = "\n\n".join(paragraphs)
-        # try to split by keywords for education/experience
-        low = joined.lower()
-        if "education" in low:
-            # split around 'education'
-            parts = re.split(r"(education|experience|skills|certif|publications|achievement)", joined, flags=re.I)
-            # naive assign: before first keyword -> top; rest go to other
-            result["top"] = parts[0].strip()
-            result["other"] = "\n".join(parts[1:]).strip()
-        else:
-            result["top"] = joined
+            else:
+                # if candidate is likely a heading but not canonical, use candidate text as heading
+                # require some heuristic score: a very short line (<=3 words) or UPPERCASE
+                if word_count <= 3 or is_caps or has_colon:
+                    current_heading = candidate.lower()
+                    sections.setdefault(current_heading, [])
+                    continue
 
-    # ensure all canonical keys exist (empty if not found)
-    for k in _CANONICAL_HEADINGS.keys():
-        result.setdefault(k, "")
+        # otherwise treat as content under current heading
+        sections.setdefault(current_heading, []).append(line)
 
-    # always include 'top' and 'other'
-    result.setdefault("top", "")
-    result.setdefault("other", "")
-    return result
+    # join lines for each section
+    out = OrderedDict()
+    for k, v in sections.items():
+        out[k] = "\n".join(v).strip()
+    return out
+

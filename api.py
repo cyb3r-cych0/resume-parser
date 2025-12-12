@@ -11,25 +11,26 @@
     -> GET /records/{id}/download (download original file),
     -> POST /records/{id}/reparse (re-run parsing using stored raw bytes and save new record),
 """
-import traceback
-from typing import Optional, List
-from fastapi import FastAPI, File, UploadFile, HTTPException, Query
-from fastapi.responses import JSONResponse, StreamingResponse
-from fastapi.middleware.cors import CORSMiddleware
+import os
 import io
 import time
-import os
+import traceback
+from typing import List
+from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, File, UploadFile, HTTPException, Query
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
-from helpers.batch_worker import warmup_models
 
 # pipeline helpers (local modules)
+from helpers.db import delete_record
+from helpers.batch_worker import warmup_models
+from helpers.spacy_loader import ALLOWED_MODELS
+from helpers.batch_worker import process_single_file
+from helpers.field_extraction import assemble_full_schema
 from helpers.text_extraction import extract_text_from_bytes
 from helpers.section_segmentation import split_into_sections
-from helpers.field_extraction import assemble_full_schema
 from helpers.normalization import normalize_schema, confidence_scores
-from helpers.batch_worker import process_single_file
-from helpers.db import init_db, save_parsed_result, get_record, get_raw_bytes, list_records
-from helpers.db import delete_record
+from helpers.db import init_db, save_parsed_result, get_record, get_raw_bytes, list_records, delete_hash_cache
 
 app = FastAPI(title="Parsely-API", version="0.2.0")
 
@@ -42,6 +43,11 @@ app.add_middleware(
 
 # initialize DB
 init_db()
+
+# prevent any library from reaching hugging face (offline-mode)
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+os.environ["HF_DATASETS_OFFLINE"] = "1"
+os.environ["HF_HUB_OFFLINE"] = "1"
 
 # warm up model
 @app.on_event("startup")
@@ -65,78 +71,44 @@ def api_delete_record(record_id: int):
         raise HTTPException(status_code=500, detail=f"Delete failed: {e}")
 
 @app.post("/parse")
-async def parse_resume(
-    file: UploadFile = File(...),
-    include_confidence: bool = False,
-    save: bool = Query(False),
-):
+async def parse_resume(file: UploadFile = File(...),
+                       include_confidence: bool = False,
+                       save: bool = Query(False),
+                       model: str = Query("en_core_web_sm"),
+                       cache: bool = Query(True)):
     if not file:
         raise HTTPException(status_code=400, detail="No file uploaded")
+    if model not in ALLOWED_MODELS:
+        raise HTTPException(status_code=400, detail=f"Unsupported model '{model}'. Choose one of {ALLOWED_MODELS}")
     try:
         contents = await file.read()
         if not contents or len(contents) < 4:
             raise HTTPException(status_code=422, detail="Empty or invalid file")
-
-        start_time = time.perf_counter()
-
-        raw_text = extract_text_from_bytes(file.filename or "", contents, use_magic=False)
-        if not raw_text or len(raw_text.strip()) < 3:
-            raise HTTPException(
-                status_code=422,
-                detail="Could not extract text from file. Ensure OCR prerequisites are installed.",
-            )
-
-        sections = split_into_sections(raw_text)
-        schema = assemble_full_schema(raw_text, sections)
-        normalized = normalize_schema(schema)
-
-        # optional confidence map
-        confidence_map = {}
-        if include_confidence:
-            try:
-                # confidence_map = confidence_scores(normalized, raw_text) or {}
-                confidence_bundle = confidence_scores(normalized, raw_text)
-                confidence_map = confidence_bundle.get("raw_scores", {})
-                resume_quality = confidence_bundle.get("overall_quality_score", 0.0)
-            except Exception:
-                # do not fail parsing due to confidence calculation issues
-                confidence_map = {}
-
-        elapsed = time.perf_counter() - start_time
-
-        # compute resume quality score from confidence_map (if available)
-        resume_quality = 0.0
-        if confidence_map:
-            numeric_conf = [v for v in confidence_map.values() if isinstance(v, (int, float))]
-            if numeric_conf:
-                resume_quality = sum(numeric_conf) / len(numeric_conf) * 100.0
-
-        response_payload = {
-            "status": "ok",
-            "file": file.filename,
-            "parsed": normalized,
-            "parse_time": elapsed,
-            "resume_quality_score": resume_quality,
-        }
-
-        if include_confidence:
-            response_payload["confidence_raw"] = confidence_bundle["raw_scores"]
-            response_payload["confidence_percentage"] = confidence_bundle["percentage_scores"]
-
-        # save to DB with raw bytes if requested
+        # process using worker; pass cache flag
+        r = process_single_file(file.filename or "uploaded", contents, model_name=model, use_cache=cache)
+        if r.get("status") != "ok":
+            # expose worker error to client
+            raise HTTPException(status_code=422, detail=r.get("error") or "Parsing failed")
+        # Save to DB if requested
         if save:
             try:
-                rec_id = save_parsed_result(
-                    file.filename or "unknown",
-                    normalized,
-                    raw_bytes=contents,
-                    status="ok",
-                    source="api",
-                )
-                response_payload["db_id"] = rec_id
+                rec_id = save_parsed_result(r.get("file"), r.get("parsed"), raw_bytes=contents, status="ok", source="api")
+                r["db_id"] = rec_id
             except Exception as e:
-                response_payload["db_save_error"] = str(e)
-        return response_payload
+                r["db_save_error"] = str(e)
+
+        # prune confidence if not requested
+        if not include_confidence:
+            r.pop("confidence_percentage", None)
+        return {
+            "status": "ok",
+            "file": r.get("file"),
+            "parsed": r.get("parsed"),
+            "timings": r.get("timings"),
+            "parse_time": r.get("parse_time"),
+            "resume_quality_score": r.get("resume_quality_score"),
+            "confidence_percentage": r.get("confidence_percentage", {})
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -144,9 +116,15 @@ async def parse_resume(
         raise HTTPException(status_code=500, detail=f"Internal error: {e}")
 
 @app.post("/parse/batch")
-async def parse_batch(files: List[UploadFile] = File(...), save: bool = Query(False)):
+async def parse_batch(files: List[UploadFile] = File(...),
+                      save: bool = Query(False),
+                      model: str = Query("en_core_web_sm"),
+                      cache: bool = Query(True)):
     if not files:
         raise HTTPException(status_code=400, detail="No files provided")
+    if model not in ALLOWED_MODELS:
+        raise HTTPException(status_code=400, detail=f"Unsupported model '{model}'. Choose one of {ALLOWED_MODELS}")
+
     payload = []
     for f in files:
         contents = await f.read()
@@ -155,36 +133,23 @@ async def parse_batch(files: List[UploadFile] = File(...), save: bool = Query(Fa
     results = []
 
     cpu = os.cpu_count() or 2
-    # use one core less than total to keep system responsive
     max_workers = min(max(1, cpu - 1), len(payload))
-    # enforce an upper cap to avoid memory blowups (override with MAX_WORKERS_CAP env var)
     max_workers_cap = int(os.getenv("MAX_WORKERS_CAP", "6"))
     max_workers = min(max_workers, max_workers_cap)
 
-    # choose ThreadPool for very small batches (avoids process spawn overhead)
     _use_thread_executor = len(payload) <= 4
     executor_cls = ThreadPoolExecutor if _use_thread_executor else ProcessPoolExecutor
-
     try:
         with executor_cls(max_workers=max_workers) as ex:
             start_time = time.perf_counter()
-            futures = [ex.submit(process_single_file, filename, data) for filename, data in payload]
-            results = []
+            # submit with model_name and cache flag
+            futures = [ex.submit(process_single_file, filename, data, model, cache) for filename, data in payload]
             for fut in futures:
                 r = fut.result()
-                # r expected to be dict containing at least keys: file, parsed, status
                 if r.get("status") == "ok":
                     if save:
                         try:
-                            # find raw bytes by matching filename to payload
-                            raw_bytes = next((b for n, b in payload if n == r.get("file")), None)
-                            rec_id = save_parsed_result(
-                                r.get("file"),
-                                r.get("parsed"),
-                                raw_bytes=raw_bytes,
-                                status="ok",
-                                source="batch",
-                            )
+                            rec_id = save_parsed_result(r.get("file"), r.get("parsed"), raw_bytes=next((b for n,b in payload if n==r.get("file")), None), status="ok", source="batch")
                             r["db_id"] = rec_id
                         except Exception as e:
                             r["db_save_error"] = str(e)
@@ -192,11 +157,8 @@ async def parse_batch(files: List[UploadFile] = File(...), save: bool = Query(Fa
             elapsed = time.perf_counter() - start_time
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Batch processing failed: {e}")
-    return {
-        "batch_count": len(results),
-        "results": results,
-        "parse_time": elapsed
-    }
+
+    return {"batch_count": len(results), "results": results, "parse_time": elapsed}
 
 @app.get("/records")
 def api_list_records(limit: int = 50, offset: int = 0):
@@ -226,7 +188,6 @@ def api_reparse_record(record_id: int, include_confidence: bool = False, save: b
     rec_meta = get_record(record_id)
     if raw is None:
         raise HTTPException(status_code=404, detail="No stored raw file for this record (cannot reparse)")
-
     # Use the same pipeline as parse_single: extract text -> split -> assemble -> normalize
     try:
         raw_text = extract_text_from_bytes(rec_meta.get("filename", ""), raw, use_magic=False)
@@ -243,11 +204,9 @@ def api_reparse_record(record_id: int, include_confidence: bool = False, save: b
                 result["confidence"] = confidence_scores(normalized, raw_text) or {}
             except Exception:
                 result["confidence"] = {}
-
         if save:
             new_id = save_parsed_result(rec_meta.get("filename"), normalized, raw_bytes=raw, status="ok", source=f"reparse_from_{record_id}")
             result["db_id"] = new_id
-
         return result
     except HTTPException:
         raise
@@ -266,3 +225,14 @@ async def save_record(payload: dict):
         return {"status": "ok", "id": rec_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/cache/clear")
+def api_clear_cache():
+    """
+    Clear the hash cache table (used for model-aware caching).
+    """
+    try:
+        delete_hash_cache()
+        return {"status": "ok", "message": "Cache cleared"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to clear cache: {e}")

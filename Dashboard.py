@@ -1,29 +1,127 @@
 #!/usr/bin/env python3
-import requests
-import streamlit as st
-import psutil
 import os
 import shutil
-import sqlite3
 import psutil
+import sqlite3
+import requests
+import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(page_title="Parsely — API", layout="wide")
+DEFAULT_API_BASE = "http://127.0.0.1:8000"
+api_base = DEFAULT_API_BASE
 
-# -------------------- Hero Title --------------------
+MODEL_CHOICES = ["en_core_web_sm", "en_core_web_lg", "en_core_web_trf"]
+model_choice = st.sidebar.selectbox("📀 NLP model (speed ↔ accuracy)", MODEL_CHOICES, index=0,
+                                    help="Pick small (fast), large (better NER), or trf (best accuracy)")
+
+# CSS tweaks
 st.markdown(
     """
-    <h1 style='text-align:center; color:#4caf50; font-size:60px; margin-bottom:0;'>
-        Parsely — API
-    </h1>
-    <h3 style='text-align:center; color:#555; margin-top:-10px;'>
-        Automated Resume Intelligence Platform
-    </h3>
+    <style>
+    .card {
+      padding:16px;
+      border-radius:12px;
+      background:#E0FFFF;
+      box-shadow:0 6px 18px rgba(0,0,0,0.06);
+      margin-bottom:18px;
+    }
+    .centered {
+      display:flex; align-items:center; justify-content:center;
+    }
+    .muted { color: #000000; font-size:14px; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+st.markdown(
+    """
+    <div class='card'>
+        <h1 style='text-align:center; color:#005f69; font-size:60px; margin-bottom:0;'>
+            Parsely — API
+        </h1>
+        <h3 style='text-align:center; color:#555; margin-top:-10px;'>
+            Automated Resume Intelligence Platform
+        </h3>
+    </div>
     """,
     unsafe_allow_html=True
 )
 
-# -------------------- Backend Helpers --------------------
+# cache controls
+st.sidebar.markdown("---")
+st.sidebar.header("🎛️ Cache Control")
+cache_enabled = st.sidebar.checkbox("Enable cache (model-aware)", value=True, key="main_cache_enabled")
+if st.sidebar.button("🧹 Clear Cache"):
+    try:
+        resp = requests.post(api_base.rstrip("/") + "/cache/clear", timeout=10)
+        if resp.ok:
+            st.sidebar.success("Cache cleared on server")
+        else:
+            st.sidebar.error(f"Clear failed: {resp.status_code}")
+    except Exception as e:
+        st.sidebar.error(f"Clear failed: {e}")
+
+st.sidebar.markdown("---")
+
+# --- helper: render small system stats cards ---
+def _color_for_pct(pct):
+    """Return brighter color shades."""
+    if pct is None:
+        return "#f0f0f0"
+    if pct < 60:
+        return "#d1f5d3"   # brighter green
+    if pct < 85:
+        return "#fff2b3"   # bright yellow
+    return "#ffd4d4"       # bright red
+
+def render_system_stats(auto_refresh=True):
+    if auto_refresh:
+        st_autorefresh(interval=5000, key="system_stats_refresh")
+
+    cpu_pct = psutil.cpu_percent(interval=0.2)
+    cpu_count = psutil.cpu_count(logical=True)
+    mem = psutil.virtual_memory()
+    mem_pct = mem.percent
+    max_workers_cap = int(os.getenv("MAX_WORKERS_CAP", "6"))
+    proc_count = len(psutil.pids())
+
+    st.markdown("### 🖥️ System Stats")
+
+    def card(title, body, bg="#f0f0f0"):
+        st.markdown(
+            f"""
+            <div style='padding:12px; margin-bottom:10px; border-radius:12px;
+                        background:{bg};
+                        border:1px solid rgba(0,0,0,0.08);
+                        box-shadow: 0px 2px 4px rgba(0,0,0,0.05);
+                        color:#000;'>
+                <div style="font-weight:700; font-size:15px; margin-bottom:6px; color:#000;">
+                    {title}
+                </div>
+                <div style="font-size:14px; color:#222;">
+                    {body}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    # CPU
+    cpu_bg = _color_for_pct(cpu_pct)
+    card("CPU", f"{cpu_pct:.0f}% used<br>{cpu_count} logical cores", bg=cpu_bg)
+    # Memory
+    mem_bg = _color_for_pct(mem_pct)
+    card("Memory", f"{mem_pct:.0f}% used<br>{round(mem.total/1024**3,1)} GB total", bg=mem_bg)
+    # Workers cap (neutral)
+    card("Workers Cap", str(max_workers_cap), bg="#fafafa")
+    # Processes (neutral)
+    card("Processes", str(proc_count), bg="#fafafa")
+
+with st.sidebar:
+    render_system_stats()
+    st.markdown("---")
+    st.text_input("🛜 API Base URL", value=api_base)
+
 # --- helper: API, DB & OCR check ---
 def system_status(api_base):
     status = {
@@ -72,84 +170,23 @@ def fetch_recent_records(api_base, limit=5):
         pass
     return []
 
-# --- helper: render small system stats cards ---
-def _color_for_pct(pct):
-    """Return brighter color shades."""
-    if pct is None:
-        return "#f0f0f0"
-    if pct < 60:
-        return "#d1f5d3"   # brighter green
-    if pct < 85:
-        return "#fff2b3"   # bright yellow
-    return "#ffd4d4"       # bright red
-
-
-def render_system_stats(auto_refresh=True):
-    if auto_refresh:
-        st_autorefresh(interval=2000, key="system_stats_refresh")
-
-    cpu_pct = psutil.cpu_percent(interval=0.2)
-    cpu_count = psutil.cpu_count(logical=True)
-    mem = psutil.virtual_memory()
-    mem_pct = mem.percent
-    max_workers_cap = int(os.getenv("MAX_WORKERS_CAP", "6"))
-    proc_count = len(psutil.pids())
-
-    st.markdown("### 🖥 System Stats")
-
-    def card(title, body, bg="#f0f0f0"):
-        st.markdown(
-            f"""
-            <div style='padding:12px; margin-bottom:10px; border-radius:12px;
-                        background:{bg};
-                        border:1px solid rgba(0,0,0,0.08);
-                        box-shadow: 0px 2px 4px rgba(0,0,0,0.05);
-                        color:#000;'>
-                <div style="font-weight:700; font-size:15px; margin-bottom:6px; color:#000;">
-                    {title}
-                </div>
-                <div style="font-size:14px; color:#222;">
-                    {body}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-    # CPU
-    cpu_bg = _color_for_pct(cpu_pct)
-    card("CPU", f"{cpu_pct:.0f}% used<br>{cpu_count} logical cores", bg=cpu_bg)
-
-    # Memory
-    mem_bg = _color_for_pct(mem_pct)
-    card("Memory", f"{mem_pct:.0f}% used<br>{round(mem.total/1024**3,1)} GB total", bg=mem_bg)
-
-    # Workers cap (neutral)
-    card("Workers Cap", str(max_workers_cap), bg="#fafafa")
-
-    # Processes (neutral)
-    card("Processes", str(proc_count), bg="#fafafa")
-
-with st.sidebar:
-    render_system_stats()
-
 st.markdown("---")
 st.subheader(" 🖥 Backend Status")
-
-api_base = st.text_input("API Base URL", value="http://127.0.0.1:8000")
-
-stat = system_status(api_base)
-col1, col2, col3 = st.columns(3)
-col1.metric("API Ready", "Yes" if stat["api_ready"] else "No")
-col2.metric("DB Ready", "Yes" if stat["db_ready"] else "No")
-col3.metric("OCR Ready", "Yes" if stat["ocr_ready"] else "No")
-st.markdown("---")
 
 backend_info = get_backend_info(api_base)
 col_a, col_b = st.columns(2)
 lat = backend_info["latency_ms"]
 ver = backend_info["version"]
-col_a.metric("Latency", f"{lat} ms" if lat else "N/A")
-col_b.metric("API Version", ver)
+col_a.metric("🛜 Latency", f"{lat} ms" if lat else "N/A")
+col_b.metric("💾 API Version", ver)
+
+st.markdown("---")
+
+stat = system_status(api_base)
+col1, col2, col3 = st.columns(3)
+col1.metric("🛜 API Ready", "Yes" if stat["api_ready"] else "No")
+col2.metric("🗃️ DB Ready", "Yes" if stat["db_ready"] else "No")
+col3.metric("📊 OCR Ready", "Yes" if stat["ocr_ready"] else "No")
 
 api_health = api_base.rstrip("/") + "/health"
 col1, col2 = st.columns([1,3])
@@ -158,7 +195,7 @@ with col1:
         try:
             r = requests.get(api_health, timeout=3)
             if r.ok:
-                st.success("🟢 Backend Connected")
+                st.success("🟢 Backend Healthy")
                 st.session_state["backend_ok"] = True
             else:
                 st.error(f"🔴 Backend Error: {r.status_code}")
@@ -168,12 +205,12 @@ with col1:
             st.session_state["backend_ok"] = False
 with col2:
     if st.session_state.get("backend_ok") is True:
-        st.info("Backend is healthy. You can now parse resumes from the menu.")
+        st.info("Backend is healthy. You can now parse resumes from the Quick Actions or Sidebar Tabs.")
     elif st.session_state.get("backend_ok") is False:
         st.warning("Backend unreachable. Start FastAPI first.")
 
 st.markdown("---")
-st.subheader("Quick Actions")
+st.subheader("⌨ Quick Actions")
 
 c1, c2, c3 = st.columns(3)
 card_style = """
@@ -195,7 +232,7 @@ with c3:
         st.switch_page("pages/3_🗃️_Database_Records.py")
 
 st.markdown("---")
-st.subheader("Recent Activity")
+st.subheader("⏱ Recent Activity")
 
 recent = fetch_recent_records(api_base, limit=5)
 if recent:
@@ -229,8 +266,8 @@ st.markdown(
     <div style='text-align:center; color:#888; font-size:14px; margin-top:40px;'>
         Parsely © 2025 — Resume Parsing & Intelligence Suite 
     </div>
-    <div style='text-align:center; color:#4caf50; font-size:12px; margin-top:10px;'>
-        Developed by cyb3-cych0
+    <div style='text-align:center; color:#005f69; font-size:12px; margin-top:10px;'>
+        Developed by cyb3r-cych0
     </div>
     """,
     unsafe_allow_html=True

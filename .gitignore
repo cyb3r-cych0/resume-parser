@@ -34,3 +34,4 @@ database/parsed_resumes.db
 
 #Local
 streamlit_client.py
+TODO.md

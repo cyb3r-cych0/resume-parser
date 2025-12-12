@@ -47,7 +47,7 @@ All OCR and NLP operations run locally with zero cloud dependencies.
     - Editable API URL
 - **Bulk Upload Support**:
   - Sequential multiple file uploads with per-resume results and aggregated JSON download.
-  - Now supports **Parallel batch** processing with multi-core OCR for faster throughput.
+  - Now supports **Parallel batch** processing with multicore OCR for faster throughput.
   - Supports both **Sequential batch** (existing) and **Parallel batch** (new) modes.
 - **Multi-core OCR Processing**:
   - Enables parallelized OCR to leverage multiple CPU cores for improved performance.
@@ -96,7 +96,7 @@ All OCR and NLP operations run locally with zero cloud dependencies.
   make
   ```
 
-3. **Additional spaCy model download (if not included in makefile or batch script):**
+1. **Additional spaCy model download (if not included in makefile or batch script):**
 
    ```bash
    pip install -U pip setuptools wheel
@@ -105,16 +105,27 @@ All OCR and NLP operations run locally with zero cloud dependencies.
    python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
    ```
    OR
-4. Alternatively, you can choose a spaCy model that works best with your needs(speed &/ accuracy)
+2. Alternatively, you can choose a spaCy model that works best with your needs(speed &/ accuracy)
   ```bash
     python -m spacy download en_core_web_trf #  accuracy (slower)
     python -m spacy download en_core_web_lg #  speed (less accurate)
    ```
-## Usage [Initialize Database & Run Backend and Client in Separate Terminals]
+## Usage
+
+**Steps**
+
+1. Initialize DB
+2. Run Backend (FastAPI)
+3. Run Frontend (Streamlit)
+
+**Note:** Run Backend `api.py` and Client `main.py` in Separate Terminals
+
+### Initialize DB
 
 ```bash
   python initialize_db.py
 ```
+
 ### Running the Backend (FastAPI) [Terminal A]
 
 Start the FastAPI server:
@@ -156,7 +167,7 @@ curl -F "file=@/path/to/sample.pdf" "http://127.0.0.1:8000/parse?include_confide
 Start the Streamlit app:
 
 ```bash
-streamlit run main.py
+streamlit run Dashboard.py
 ```
 
 Open [http://localhost:8501](http://localhost:8501) in your browser.

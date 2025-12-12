@@ -1,52 +1,93 @@
 #!/usr/bin/env python3
+import os
 import json
+import psutil
 import requests
-import streamlit as st
 import pandas as pd
+import streamlit as st
 from utils import circular_gauge
+from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(page_title="Batch Parsing", layout="wide")
 
 DEFAULT_API_BASE = "http://127.0.0.1:8000"
-api_base = st.sidebar.text_input("API base URL", value=DEFAULT_API_BASE)
+api_base = DEFAULT_API_BASE
 api_parse = api_base.rstrip("/") + "/parse"
 api_batch = api_base.rstrip("/") + "/parse/batch"
 api_records = api_base.rstrip("/") + "/records"
 
-st.markdown("<h2 style='margin:0'>📁 Parse Batch of Resumes</h2><div style='color:#666;margin-bottom:12px'>Upload multiple files and choose parse mode.</div>", unsafe_allow_html=True)
+MODEL_CHOICES = ["en_core_web_sm", "en_core_web_lg", "en_core_web_trf"]
+model_choice = st.sidebar.selectbox("📀 NLP model (speed ↔ accuracy)", MODEL_CHOICES, index=0,
+                                    help="Pick small (fast), large (better NER), or trf (best accuracy)", key="batch_model_choice")
+# CSS tweaks
+st.markdown(
+    """
+    <style>
+    .card {
+      padding:16px;
+      border-radius:12px;
+      background:#005f69;
+      box-shadow:0 6px 18px rgba(0,0,0,0.06);
+      margin-bottom:18px;
+    }
+    .centered {
+      display:flex; align-items:center; justify-content:center;
+    }
+    .muted { color: #000000; font-size:14px; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+st.markdown("<div class='card'><h2 style='margin:0'>📁 Parse Batch of Resumes</h2><div class='muted'>Upload multiple files and choose parse mode</div></div>", unsafe_allow_html=True)
+
+# cache controls
+st.sidebar.markdown("---")
+st.sidebar.header("🎛️ Cache Control")
+cache_enabled = st.sidebar.checkbox("Enable cache (model-aware)", value=True, key="batch_cache_enabled")
+if st.sidebar.button("🧹 Clear Cache"):
+    try:
+        resp = requests.post(api_base.rstrip("/") + "/cache/clear", timeout=10)
+        if resp.ok:
+            st.sidebar.success("Cache cleared on server")
+        else:
+            st.sidebar.error(f"Clear failed: {resp.status_code}")
+    except Exception as e:
+        st.sidebar.error(f"Clear failed: {e}")
+
+st.sidebar.markdown("---")
+with st.sidebar:
+    st.text_input("🛜 API Base URL", value=api_base)
 
 # ----- uploader + options -----
-col_up = st.container()
-with col_up:
-    c1, c2 = st.columns([3,1])
-    with c1:
+with st.container():
+    col1, col2, col3 = st.columns([1, 6, 1])
+    with col2:
         batch_files = st.file_uploader("Select multiple resumes", accept_multiple_files=True,
                                       type=["pdf","docx","txt","png","jpg","jpeg","tiff"], key="batch_files")
-    with c2:
-        save_toggle = st.checkbox("Save each parsed to DB", value=False, key="batch_save")
-        include_conf = st.checkbox("Include confidence", value=False, key="batch_conf")
-
-st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-
-# action buttons
-a1, a2, a3 = st.columns([1,1,1])
-with a1:
-    parse_parallel = st.button("Parse in Parallel")
-with a2:
-    parse_sequential = st.button("Parse Sequentially")
-with a3:
-    clear_batch = st.button("Clear Results")
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        c1, c2 = st.columns([2, 2])
+        with c1:
+            save_toggle = st.checkbox("Save each parsed to DB", value=False, key="batch_save")
+        with c2:
+            include_conf = st.checkbox("Include confidence", value=False, key="batch_conf")
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+        # action buttons
+        a1, a2, a3 = st.columns([1, 1, 1])
+        with a1:
+            parse_parallel = st.button("Parse in Parallel")
+        with a2:
+            parse_sequential = st.button("Parse Sequentially")
+        with a3:
+            clear_batch = st.button("Clear Results")
 
 if clear_batch:
     st.session_state.pop("batch_results", None)
     # st.experimental_rerun()
 
 # helper to display single result card
-# ---------- robust result rendering ----------
 def render_result_card(result):
     st.markdown("---")
     # normalize result shape
-    # expected minimal: {"file":..., "status":..., "parsed": {...}, "resume_quality_score":..., "confidence_percentage": {...}, "parse_time": ...}
     file = result.get("file") or result.get("filename") or "unknown"
     status = result.get("status", "n/a")
 
@@ -107,16 +148,18 @@ def render_result_card(result):
 # ---------- API callers ----------
 def call_batch_api(files_payload, params):
     try:
-        r = requests.post(api_batch, files=files_payload, params=params, timeout=600)
-        return r
+        with st.spinner("Processing...", show_time=True):
+            r = requests.post(api_batch, files=files_payload, params=params, timeout=600)
+            return r
     except Exception as e:
         st.error(f"Batch request failed: {e}")
         return None
 
 def call_single_api(file_tuple, params):
     try:
-        r = requests.post(api_parse, files={"file": file_tuple}, params=params, timeout=180)
-        return r
+        with st.spinner("Processing...", show_time=True):
+            r = requests.post(api_parse, files={"file": file_tuple}, params=params, timeout=180)
+            return r
     except Exception as e:
         st.error(f"Request failed for {file_tuple[0]}: {e}")
         return None
@@ -126,14 +169,17 @@ if parse_parallel:
     if not batch_files:
         st.warning("Please select files.")
     else:
-        st.info("Parallel Parsing... This may take a moment. Please wait!")
-        with st.spinner("Processing...", show_time=True):
-            files_payload = [("files", (f.name, f.getvalue())) for f in batch_files]
-            params = {}
-            if save_toggle:
-                params["save"] = "true"
-            params["include_confidence"] = str(include_conf).lower()
-            resp = call_batch_api(files_payload, params)
+        st.info("Parallel parsing started... This may take a moment. Please wait!")
+        files_payload = [("files", (f.name, f.getvalue())) for f in batch_files]
+
+        params = {"include_confidence": str(include_conf).lower(), "model": model_choice,
+                  "cache": "true" if cache_enabled else "false"}
+        if save_toggle:
+            params["save"] = "true"
+        params["include_confidence"] = str(include_conf).lower()
+        params["model"] = model_choice
+
+        resp = call_batch_api(files_payload, params)
 
         if resp and resp.status_code == 200:
             data = resp.json()
@@ -161,22 +207,26 @@ if parse_parallel:
                 "results": enriched,
                 "parse_time": data.get("parse_time"),
             }
-            st.success("Batch finished (results enriched)")
+            st.success("Parallel parsing finished")
         else:
-            st.error(f"Batch API error: {resp.status_code if resp else 'n/a'}")
+            st.error(f"Parallel API error: {resp.status_code if resp else 'n/a'}")
 
 # ---------- sequential handler (unchanged but ensure similar structure) ----------
 if parse_sequential:
     if not batch_files:
         st.warning("Please select files.")
     else:
-        st.info("Parsing sequentially...")
+        st.info("Sequential parsing started... This may take a moment. Please wait!")
         total = len(batch_files)
         prog = st.progress(0)
         results = {"batch_count": total, "results": [], "parse_time": 0.0}
         for i, f in enumerate(batch_files):
             file_tuple = (f.name, f.getvalue())
-            params = {"include_confidence": str(include_conf).lower()}
+            params = {
+                "include_confidence": str(include_conf).lower(),
+                "model": model_choice,
+                "cache": "true" if cache_enabled else "false"
+            }
             if save_toggle:
                 params["save"] = "true"
             r = call_single_api(file_tuple, params)
@@ -195,20 +245,19 @@ if parse_sequential:
         st.session_state["batch_results"] = results
         st.success("Sequential parsing finished")
 
-# ---------- SHOW BATCH RESULTS (summary + on-demand detail) ----------
+# ---------- SHOW BATCH RESULTS ----------
 results_bundle = st.session_state.get("batch_results")
 if results_bundle:
     st.markdown("## Batch Results")
-
     if "parse_time" in results_bundle:
-        st.info(f"⏱ Batch parse time: {results_bundle['parse_time']:.2f} s")
+        st.info(f"⏱ Batch parse time: {results_bundle['parse_time']:.2f} s. 🖥 Parsing Model: **{model_choice}**")
 
     rows = results_bundle.get("results", [])
     total = len(rows)
 
     st.markdown(f"Showing {min(total,50)} of {total} results (click a row to view details)")
 
-    # Lightweight summary table (fast)
+    # Lightweight summary table
     summary_cols = st.columns([4,1,1,1])  # filename | status | time | actions
     summary_cols[0].markdown("**Filename**")
     summary_cols[1].markdown("**Status**")
@@ -231,12 +280,11 @@ if results_bundle:
         c2.markdown(f"{(float(ptime)):.2f}s" if ptime else "—")
         if c3.button("Show details", key=f"show_detail_{idx}"):
             st.session_state["batch_selected_idx"] = idx
-            # scroll-like UX: bring details into view by rerunning (light)
             # st.experimental_rerun()
 
     st.markdown("---")
 
-    # If an item is selected, render its full heavy card below (only one)
+    # If an item is selected, render its card below (only one)
     sel = st.session_state.get("batch_selected_idx")
     if sel is not None and 0 <= sel < len(rows):
         st.markdown(f"### Details — {rows[sel].get('file') or rows[sel].get('filename')}")
