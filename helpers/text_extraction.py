@@ -4,13 +4,17 @@
  - OCR fallback (pdf→image + pytesseract).
 """
 import io
+import os
+import re
 import sys
-from PIL import Image, ImageFilter, ImageOps
+import docx
+import math
 import pdfplumber
 import pytesseract
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+from typing import List
 from pdf2image import convert_from_bytes
-import docx
+from PIL import Image, ImageFilter, ImageOps
+pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 # Optional: use python-magic if installed for MIME detection
 try:
@@ -27,7 +31,6 @@ except Exception:
     _HAS_CV2 = False
 
 # ------------------ Config / helpers ------------------
-import os
 # Default DPI lowered to 200 for faster conversions; override with env var OCR_DPI if needed
 OCR_DPI = int(os.getenv("OCR_DPI", "200"))
 
@@ -42,9 +45,6 @@ OCR_LANG = "eng"  # change if you need other languages and installed tesseract l
 # Tesseract PSM modes to experiment with; default is 3 (fully automatic)
 TESSERACT_CONFIG = "--psm 3 --oem 3"
 
-import math
-from typing import List
-
 def score_text_quality(text: str) -> float:
     """
     Lightweight heuristic score for OCR text quality.
@@ -52,7 +52,6 @@ def score_text_quality(text: str) -> float:
     """
     if not text:
         return 0.0
-    import re
     tokens = [t for t in re.split(r"\s+", text) if t]
     word_count = len(tokens)
     if word_count == 0:
@@ -194,7 +193,6 @@ def extract_text_from_pdf_bytes(data: bytes, ocr_fallback: bool = True) -> str:
     joined = "\n".join(text_parts).strip()
     if joined and len(joined) > 50:
         return joined
-
     if not ocr_fallback:
         return joined
 

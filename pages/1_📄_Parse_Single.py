@@ -1,20 +1,30 @@
 #!/usr/bin/env python3
+import os
 import json
+import psutil
 import requests
+import pandas as pd
 import streamlit as st
 from utils import circular_gauge
-import pandas as pd
+from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(page_title="Parse Single Resume", layout="wide")
 
-# small page CSS tweaks
+DEFAULT_API_BASE = "http://127.0.0.1:8000"
+api_base = DEFAULT_API_BASE
+api_parse = api_base.rstrip("/") + "/parse"
+
+MODEL_CHOICES = ["en_core_web_sm", "en_core_web_lg", "en_core_web_trf"]
+model_choice = st.sidebar.selectbox("📀 NLP model (speed ↔ accuracy)", MODEL_CHOICES, index=0,
+                                    help="Pick small (fast), large (better NER), or trf (best accuracy)", key="single_model_choice")
+# CSS tweaks
 st.markdown(
     """
     <style>
     .card {
       padding:16px;
       border-radius:12px;
-      background:rgba(46, 139, 87, 1);
+      background:#005f69;
       box-shadow:0 6px 18px rgba(0,0,0,0.06);
       margin-bottom:18px;
     }
@@ -26,12 +36,25 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-
-DEFAULT_API_BASE = "http://127.0.0.1:8000"
-api_base = st.sidebar.text_input("API base URL", value=DEFAULT_API_BASE)
-api_parse = api_base.rstrip("/") + "/parse"
-
 st.markdown("<div class='card'><h2 style='margin:0'>📄 Parse Single Resume</h2><div class='muted'>Upload a file and click Parse</div></div>", unsafe_allow_html=True)
+
+# cache controls
+st.sidebar.markdown("---")
+st.sidebar.header("🎛️ Cache Control")
+cache_enabled = st.sidebar.checkbox("Enable cache (model-aware)", value=True, key="single_cache_enabled")
+if st.sidebar.button("🧹 Clear Cache"):
+    try:
+        resp = requests.post(api_base.rstrip("/") + "/cache/clear", timeout=10)
+        if resp.ok:
+            st.sidebar.success("Cache cleared on server")
+        else:
+            st.sidebar.error(f"Clear failed: {resp.status_code}")
+    except Exception as e:
+        st.sidebar.error(f"Clear failed: {e}")
+
+st.sidebar.markdown("---")
+with st.sidebar:
+    st.text_input("🛜 API Base URL", value=api_base)
 
 # Centered uploader area
 with st.container():
@@ -44,7 +67,7 @@ with st.container():
             include_conf = st.checkbox("Include confidence", value=False, key="ui_single_conf")
         with c2:
             save_toggle = st.checkbox("Save to DB", value=False, key="ui_single_save")
-
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
         # action buttons row
         btn_col1, btn_col2 = st.columns([2,2])
         with btn_col1:
@@ -53,7 +76,6 @@ with st.container():
             clear_clicked = st.button("Clear Results", key="clear_btn")
 
 if clear_clicked:
-    # clear uploader and last result
     st.session_state.pop("single_file", None)
     st.session_state.pop("last_single_result", None)
     # st.experimental_rerun()
@@ -63,9 +85,11 @@ if parse_clicked:
         st.warning("Please upload a resume first.")
     else:
         try:
-            with st.spinner("Parsing... Please wait", show_time=True):
+            st.info("Parsing... This may take a moment. Please wait!")
+            with st.spinner("Processing...", show_time=True):
                 files = {"file": (uploaded.name, uploaded.getvalue())}
-                params = {"include_confidence": str(include_conf).lower()}
+                params = {"include_confidence": str(include_conf).lower(), "model": model_choice,
+                          "cache": "true" if cache_enabled else "false"}
                 if save_toggle:
                     params["save"] = "true"
                 r = requests.post(api_parse, files=files, params=params, timeout=120)
@@ -76,14 +100,13 @@ if parse_clicked:
                 # show success + parse time if present
                 st.success("Parsed successfully")
                 if "parse_time" in data:
-                    st.info(f"⏱ Parse Time: {data['parse_time']:.2f} s")
+                    st.info(f"⏱ Parse Time: **{data['parse_time']:.2f}** s. 🖥 Parsing Model: **{model_choice}**")
                 # show cached badge if backend returned cached timing
                 timings = data.get("timings") or (data.get("parsed", {}) or {}).get("timings", {})
                 if isinstance(timings, dict) and timings.get("cached"):
-                    st.warning("⚡ Result returned from cache (fast)")
+                    st.warning("⚡ Result returned from cache")
             else:
                 st.error(f"API error {r.status_code}: {r.text}")
-
         except Exception as e:
             st.error(f"Request failed: {e}")
 
@@ -159,5 +182,4 @@ if result:
         # collapsible JSON view
         with st.expander("Show parsed JSON", expanded=False):
             st.code(json.dumps(result, indent=2), language="json")
-
         st.markdown("</div>", unsafe_allow_html=True)

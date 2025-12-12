@@ -7,22 +7,20 @@ import json
 import sqlite3
 from datetime import datetime
 from typing import Optional, Dict, Any
-
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import (
     create_engine, Column, Integer, Text, DateTime, String, Boolean, LargeBinary
 )
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
 
-DB_DIR = os.path.join(os.getcwd(), "database")
+DB_DIR = os.path.join(os.getcwd(), "data")
 os.makedirs(DB_DIR, exist_ok=True)
-DB_PATH = os.path.join(DB_DIR, "parsed_resumes.db")
+DB_PATH = os.path.join(DB_DIR, "resume_results.db")
 SQLITE_URL = f"sqlite:///{DB_PATH}"
 
 engine = create_engine(SQLITE_URL, connect_args={"check_same_thread": False}, echo=False)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
-
 
 class ResumeRecord(Base):
     __tablename__ = "resume_records"
@@ -36,15 +34,13 @@ class ResumeRecord(Base):
     source = Column(String(50), nullable=True)
     saved = Column(Boolean, default=True)
 
-
 def init_db():
     """
-    Initialize DB tables for SQLAlchemy models and create the
-    lightweight hash_cache table used by the SHA256 caching layer.
+    Initialize SQLAlchemy tables and the separate hash_cache table used for caching.
     """
-    # create tables declared via SQLAlchemy ORM
     Base.metadata.create_all(bind=engine)
-    # ensure the hash_cache table exists (use sqlite3 directly)
+
+    # create simple hash_cache table for caching parsed outputs
     try:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
@@ -59,9 +55,7 @@ def init_db():
         conn.commit()
         conn.close()
     except Exception as e:
-        # don't crash startup on DB creation issues; log to stdout for now
         print("init_db: failed to create hash_cache table:", e)
-
 
 def save_parsed_result(filename: str, parsed_obj: Optional[Dict[str, Any]],
                        raw_bytes: Optional[bytes] = None,
@@ -83,7 +77,6 @@ def save_parsed_result(filename: str, parsed_obj: Optional[Dict[str, Any]],
     finally:
         db.close()
 
-
 def get_record(record_id: int) -> Optional[Dict[str, Any]]:
     db = SessionLocal()
     try:
@@ -102,7 +95,6 @@ def get_record(record_id: int) -> Optional[Dict[str, Any]]:
     finally:
         db.close()
 
-
 def get_raw_bytes(record_id: int) -> Optional[bytes]:
     db = SessionLocal()
     try:
@@ -112,7 +104,6 @@ def get_raw_bytes(record_id: int) -> Optional[bytes]:
         return rec.raw_file
     finally:
         db.close()
-
 
 def list_records(limit: int = 50, offset: int = 0):
     db = SessionLocal()
@@ -131,7 +122,6 @@ def list_records(limit: int = 50, offset: int = 0):
     finally:
         db.close()
 
-
 def save_hash_cache(hash_value, parsed, resume_score, conf_pct):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -141,7 +131,6 @@ def save_hash_cache(hash_value, parsed, resume_score, conf_pct):
     """, (hash_value, json.dumps(parsed), float(resume_score or 0.0), json.dumps(conf_pct or {})))
     conn.commit()
     conn.close()
-
 
 def get_record_by_hash(hash_value):
     conn = sqlite3.connect(DB_PATH)
@@ -157,6 +146,17 @@ def get_record_by_hash(hash_value):
         "confidence_percentage": json.loads(row[2]),
     }
 
+def delete_hash_cache():
+    """
+    Remove all rows from the hash_cache table (clear cache).
+    """
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        c = conn.cursor()
+        c.execute("DELETE FROM hash_cache")
+        conn.commit()
+    finally:
+        conn.close()
 
 def delete_record(record_id: int) -> bool:
     """

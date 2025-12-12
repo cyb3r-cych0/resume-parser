@@ -12,7 +12,7 @@ def circular_gauge(score: float, label="Quality Score", size: int = 180):
     # color thresholds
     if pct >= 80:
         color = "#4caf50"  # green
-    elif pct >= 60:
+    elif pct >= 50:
         color = "#f9a825"  # amber
     else:
         color = "#e53935"  # red

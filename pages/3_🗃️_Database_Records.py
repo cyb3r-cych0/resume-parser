@@ -1,20 +1,63 @@
 #!/usr/bin/env python3
 import io
+import os
 import csv
 import json
+import psutil
 import requests
-import streamlit as st
 import pandas as pd
+import streamlit as st
 from datetime import datetime
 from utils import circular_gauge
+from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(page_title="Saved Records", layout="wide")
 
 DEFAULT_API_BASE = "http://127.0.0.1:8000"
-api_base = st.sidebar.text_input("API base URL", value=DEFAULT_API_BASE)
+api_base = DEFAULT_API_BASE
 api_records = api_base.rstrip("/") + "/records"
 
-st.markdown("<h2 style='margin:0'>🗃️ Saved Parsed Records</h2><div style='color:#666;margin-bottom:12px'>Browse, inspect, export and reparse stored records.</div>", unsafe_allow_html=True)
+MODEL_CHOICES = ["en_core_web_sm", "en_core_web_lg", "en_core_web_trf"]
+model_choice = st.sidebar.selectbox("📀 NLP model (speed ↔ accuracy)", MODEL_CHOICES, index=0,
+                                    help="Pick small (fast), large (better NER), or trf (best accuracy)", key="database_model_choice")
+# CSS tweaks
+st.markdown(
+    """
+    <style>
+    .card {
+      padding:16px;
+      border-radius:12px;
+      background:#005f69;
+      box-shadow:0 6px 18px rgba(0,0,0,0.06);
+      margin-bottom:18px;
+    }
+    .centered {
+      display:flex; align-items:center; justify-content:center;
+    }
+    .muted { color: #000000; font-size:14px; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+st.markdown("<div class='card'><h2 style='margin:0'>🗃️ Saved Parsed Records</h2><div class='muted'>Browse, inspect, export and reparse stored records</div></div>", unsafe_allow_html=True)
+
+# cache controls
+st.sidebar.markdown("---")
+st.sidebar.header("🎛️ Cache Control")
+cache_enabled = st.sidebar.checkbox("Enable cache (model-aware)", value=True, key="database_cache_enabled")
+if st.sidebar.button("🧹 Clear Cache"):
+    try:
+        resp = requests.post(api_base.rstrip("/") + "/cache/clear", timeout=10)
+        if resp.ok:
+            st.sidebar.success("Cache cleared on server")
+        else:
+            st.sidebar.error(f"Clear failed: {resp.status_code}")
+    except Exception as e:
+        st.sidebar.error(f"Clear failed: {e}")
+
+st.sidebar.markdown("---")
+with st.sidebar:
+    st.text_input("🛜 API Base URL", value=api_base)
 
 # ---------------- Controls ----------------
 controls_col1, controls_col2, controls_col3 = st.columns([2,2,2])
@@ -49,7 +92,7 @@ st.markdown("---")
 if "records_list" not in st.session_state:
     st.session_state["records_list"] = []
 
-# quick helper to filter records locally
+# helper: filter records locally
 def filter_records(rows, q, dfrom, dto, cached_only):
     out = []
     for r in rows:
@@ -175,16 +218,15 @@ if rec:
         if st.button("Re-parse stored file", key="db_reparse"):
             try:
                 rr = requests.post(f"{api_base.rstrip('/')}/records/{rec.get('id')}/reparse",
-                                   params={"include_confidence": "true", "save": "true"}, timeout=120)
+                                   params={"include_confidence": "true", "save": "true", "model": model_choice,
+                                           "cache": "true" if cache_enabled else "false"}, timeout=120)
                 if rr.ok:
                     st.success("Reparse completed and saved")
-                    # update last opened record with returned parsed result (API returns parsed envelope)
+                    st.info(f"🖥 Parsing Model: **{model_choice}**")
                     st.session_state["last_opened_record"] = rr.json()
-
-                    # refresh records list in session (best-effort)
+                    # refresh records list in session
                     try:
-                        rlist = requests.get(api_base.rstrip("/") + "/records", params={"limit": records_limit},
-                                             timeout=6)
+                        rlist = requests.get(api_base.rstrip("/") + "/records", params={"limit": records_limit},timeout=6)
                         if rlist.ok:
                             st.session_state["records_list"] = rlist.json().get("results", [])
                     except Exception:
@@ -221,7 +263,6 @@ if rec:
                     st.error(f"Delete failed: {e}")
             if st.button("Cancel", key=f"db_cancel_delete_{rec.get('id')}"):
                 st.session_state.pop(delete_key, None)
-
     with right:
         if isinstance(confidence_pct, dict) and confidence_pct:
             st.markdown("**Field confidence (%)**")
@@ -235,7 +276,6 @@ if rec:
             st.code(json.dumps(parsed, indent=2), language="json")
 
     st.markdown("---")
-
 # ---------------- Footer / debug ----------------
 st.markdown("### Tools")
 st.write("You can open records from the home page 'Recent Activity' or by typing an ID above.")
