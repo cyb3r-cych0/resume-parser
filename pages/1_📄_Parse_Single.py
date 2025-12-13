@@ -136,12 +136,12 @@ if result:
             mt = ", ".join([f"{k}:{('cached' if v is True else f'{v:.2f}s')}" for k, v in timings.items()])
             st.markdown(f"**Timings:** {mt}")
 
-        # small contact summary
+        # --- show contact ---
         st.markdown("---")
         st.markdown("**Contact**")
         st.write(parsed.get("name", "—"))
-        st.write(parsed.get("email","—"))
-        st.write(parsed.get("phoneNumber","—"))
+        st.write(parsed.get("email", "—"))
+        st.write(parsed.get("phoneNumber", "—"))
 
         save_endpoint = api_base.rstrip("/") + "/save"
         if st.button("Save parsed result", key="single_save"):

@@ -14,6 +14,39 @@ from typing import Dict, Any
 
 YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
 
+def _valid_name(v: str) -> bool:
+    return bool(v) and 2 <= len(v.split()) <= 4 and v.replace(" ", "").isalpha()
+
+def _valid_college(v: str) -> bool:
+    return bool(v) and re.search(r"(university|college|institute|school)", v.lower())
+
+def _valid_degree(v: str) -> bool:
+    return bool(v) and re.search(r"(bachelor|master|b\.sc|m\.sc|b\.tech|m\.tech|phd)", v.lower())
+
+def _valid_work_block(w: dict) -> bool:
+    return bool(w.get("organization") or w.get("title")) and bool(w.get("startYear"))
+
+def _valid_cert(v: str) -> bool:
+    return bool(v) and re.search(r"(certificat|certified|training)", v.lower())
+
+
+def _clean_entity_text(s: str) -> str:
+    if not s:
+        return ""
+    # drop emails, phones, urls
+    s = re.sub(r"\S+@\S+", "", s)
+    s = re.sub(r"https?://\S+", "", s)
+    s = re.sub(r"\+?\d[\d\s\-()/]{6,}", "", s)
+
+    # collapse whitespace
+    s = re.sub(r"\s+", " ", s).strip()
+
+    # hard length cap (prevents paragraphs)
+    if len(s.split()) > 10:
+        return ""
+    return s
+
+
 def clean_whitespace(text: str) -> str:
     if not text:
         return ""
@@ -74,22 +107,27 @@ def normalize_gpa_or_percentage(value: str, scale: str) -> (str, str):
 
 def normalize_schema(final_data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Takes the JSON produced by field_extraction.Compile and normalizes all fields.
+    Takes the JSON produced by the parser and normalizes all fields.
+    This function is SAFE, schema-locked, and UI/DB resistant.
     """
-    # normalize name
-    final_data["name"] = clean_whitespace(final_data.get("name", ""))
 
-    # email + phone already extracted, just strip whitespace
+    # ----------------------------
+    # 1) Basic scalar normalization
+    # ----------------------------
+    final_data["name"] = clean_whitespace(final_data.get("name", ""))
     final_data["email"] = clean_whitespace(final_data.get("email", ""))
     final_data["phoneNumber"] = clean_whitespace(final_data.get("phoneNumber", ""))
 
-    # normalize years
+    # ----------------------------
+    # 2) Normalize graduation years
+    # ----------------------------
     for key in list(final_data.keys()):
         if "GraduationYear" in key or "graduationYear" in key:
             final_data[key] = normalize_year(final_data.get(key, ""))
 
-    # normalize GPA fields
-    # high school
+    # ----------------------------
+    # 3) GPA normalization
+    # ----------------------------
     gpa_val, gpa_scale = normalize_gpa_or_percentage(
         final_data.get("highSchoolGpaOrPercentage", ""),
         final_data.get("highSchoolGpaScale", "")
@@ -97,7 +135,6 @@ def normalize_schema(final_data: Dict[str, Any]) -> Dict[str, Any]:
     final_data["highSchoolGpaOrPercentage"] = gpa_val
     final_data["highSchoolGpaScale"] = gpa_scale
 
-    # undergraduate
     gpa_val, gpa_scale = normalize_gpa_or_percentage(
         final_data.get("ugCollegeGpaOrPercentage", ""),
         final_data.get("ugCollegeGpaScale", "")
@@ -105,7 +142,6 @@ def normalize_schema(final_data: Dict[str, Any]) -> Dict[str, Any]:
     final_data["ugCollegeGpaOrPercentage"] = gpa_val
     final_data["ugCollegeGpaScale"] = gpa_scale
 
-    # postgraduate
     gpa_val, gpa_scale = normalize_gpa_or_percentage(
         final_data.get("pgCollegeGpaOrPercentage", ""),
         final_data.get("pgCollegeGpaScale", "")
@@ -113,25 +149,102 @@ def normalize_schema(final_data: Dict[str, Any]) -> Dict[str, Any]:
     final_data["pgCollegeGpaOrPercentage"] = gpa_val
     final_data["pgCollegeGpaScale"] = gpa_scale
 
-    # clean strings in lists and nested dicts
-    list_fields = [
+    # ----------------------------
+    # 4) Clean list fields
+    # ----------------------------
+    LIST_FIELDS = [
         "certifications",
         "extraCurricularActivities",
         "workExperience",
         "researchPublications",
         "achievements",
     ]
-    for lf in list_fields:
-        if isinstance(final_data.get(lf), list):
-            cleaned = []
-            for item in final_data[lf]:
-                if isinstance(item, str):
-                    cleaned.append(clean_whitespace(item))
-                elif isinstance(item, dict):
-                    cleaned.append({k: clean_whitespace(str(v)) for k, v in item.items()})
-            final_data[lf] = cleaned
+
+    for lf in LIST_FIELDS:
+        if not isinstance(final_data.get(lf), list):
+            final_data[lf] = []
+            continue
+
+        cleaned_list = []
+        for item in final_data[lf]:
+            if isinstance(item, str):
+                cleaned_list.append(clean_whitespace(item))
+            elif isinstance(item, dict):
+                cleaned_list.append({
+                    k: clean_whitespace(str(v)) for k, v in item.items()
+                })
+        final_data[lf] = cleaned_list
+
+    # ----------------------------
+    # 5) HARD sanitize education fields
+    # ----------------------------
+    for k in [
+        "ugCollegeName", "ugDegree", "ugMajor",
+        "pgCollegeName", "pgDegree", "pgMajor"
+    ]:
+        final_data[k] = _clean_entity_text(final_data.get(k, ""))
+
+    # ----------------------------
+    # 6) HARD sanitize work experience
+    # ----------------------------
+    cleaned_exp = []
+
+    for w in final_data.get("workExperience", []):
+        if not isinstance(w, dict):
+            continue
+
+        org = _clean_entity_text(w.get("organization", ""))
+        title = _clean_entity_text(w.get("title", ""))
+        start = normalize_year(w.get("startYear", ""))
+        end = normalize_year(w.get("endYear", ""))
+        details = w.get("details", [])
+
+        # must have org or title + at least one year
+        if not (org or title):
+            continue
+        if not (start or end):
+            continue
+
+        if not isinstance(details, list):
+            details = []
+
+        cleaned_exp.append({
+            "organization": org,
+            "title": title,
+            "startYear": start,
+            "endYear": end,
+            "details": details
+        })
+
+    final_data["workExperience"] = cleaned_exp
+
+    # ----------------------------
+    # 7) FINAL schema guard (CRITICAL)
+    # ----------------------------
+    DEFAULT_LIST_FIELDS = [
+        "certifications",
+        "extraCurricularActivities",
+        "workExperience",
+        "researchPublications",
+        "achievements"
+    ]
+
+    for f in DEFAULT_LIST_FIELDS:
+        if f not in final_data or not isinstance(final_data[f], list):
+            final_data[f] = []
+
+    DEFAULT_STR_FIELDS = [
+        "name", "email", "phoneNumber",
+        "ugCollegeName", "ugDegree", "ugMajor",
+        "pgCollegeName", "pgDegree", "pgMajor"
+    ]
+
+    for f in DEFAULT_STR_FIELDS:
+        if f not in final_data or not isinstance(final_data[f], str):
+            final_data[f] = ""
 
     return final_data
+
 
 # ------------------ Confidence scoring (field-aware) ------------------
 def _score_presence(value) -> float:
@@ -156,7 +269,7 @@ def _score_name(name: str) -> float:
     if len(tokens) >= 2:
         caps = sum(1 for t in tokens if t and t[0].isupper())
         return min(1.0, 0.5 + 0.12 * caps)
-    return 0.3
+    return 0.5
 
 def _score_year(value: str) -> float:
     if not value:
@@ -166,7 +279,7 @@ def _score_year(value: str) -> float:
         return 0.9
     # fuzzy numeric presence
     if any(ch.isdigit() for ch in value):
-        return 0.5
+        return 0.8
     return 0.0
 
 def _score_gpa(value: str) -> float:
@@ -180,9 +293,9 @@ def _score_gpa(value: str) -> float:
         # else assume 0..4 or 0..10
         return min(1.0, v / 4.0) if v <= 4.5 else min(1.0, v / 10.0)
     except Exception:
-        return 0.5
+        return 0.8
 
-def confidence_scores(final_data: Dict[str, Any], raw_text: str) -> Dict[str, Any]:
+def confidence_scores(parsed: Dict[str, Any]) -> Dict[str, float]:
     """
     Return per-field confidence (0..1) and percentage mapping plus an overall score (0..100).
     Structure:
@@ -193,66 +306,76 @@ def confidence_scores(final_data: Dict[str, Any], raw_text: str) -> Dict[str, An
       "overall_quality_score": 72.4
     }
     """
-    scores: Dict[str, float] = {}
+    confidence = {}
 
-    # name
-    scores["name"] = _score_name(final_data.get("name", ""))
+    def score_text(val: str) -> float:
+        if not val:
+            return 0.0
+        words = len(val.split())
+        if words >= 6:
+            return 100.0
+        if words >= 3:
+            return 90.0
+        return 80.0
 
-    # email/phone
-    scores["email"] = 1.0 if final_data.get("email") else 0.0
-    scores["phoneNumber"] = 0.8 if final_data.get("phoneNumber") else 0.0
+    def score_list(items: list, min_items=1, good_items=3) -> float:
+        if not items:
+            return 0.0
+        count = len(items)
+        if count >= good_items:
+            return 100.0
+        if count >= min_items:
+            return 90.0
+        return 80.0
 
-    # education year & degree confidence
-    for key in final_data.keys():
-        if "GraduationYear" in key or "graduationYear" in key:
-            scores[key] = _score_year(final_data.get(key, ""))
+    # --- scalar fields ---
+    confidence["name"] = score_text(parsed.get("name", ""))
+    confidence["email"] = 100.0 if parsed.get("email") else 0.0
+    confidence["phoneNumber"] = 100.0 if parsed.get("phoneNumber") else 0.0
 
-    # GPA / percentage fields
-    for key in final_data.keys():
-        if "GpaOrPercentage" in key or "gpaOrPercentage" in key:
-            scores[key] = _score_gpa(final_data.get(key, ""))
+    # --- education ---
+    confidence["ugDegree"] = score_text(parsed.get("ugDegree", ""))
+    confidence["ugMajor"] = score_text(parsed.get("ugMajor", ""))
+    confidence["pgDegree"] = score_text(parsed.get("pgDegree", ""))
+    confidence["pgMajor"] = score_text(parsed.get("pgMajor", ""))
 
-    # certifications / experience / pubs / achievements presence
-    scores["certifications"] = _score_presence(final_data.get("certifications", []))
-    scores["workExperience"] = _score_presence(final_data.get("workExperience", []))
-    scores["researchPublications"] = _score_presence(final_data.get("researchPublications", []))
-    scores["achievements"] = _score_presence(final_data.get("achievements", []))
+    # --- experience ---
+    exp = parsed.get("workExperience", [])
+    confidence["workExperience"] = score_list(exp, min_items=1, good_items=2)
 
-    # degree & major presence
-    scores["ugDegree"] = _score_presence(final_data.get("ugDegree", ""))
-    scores["ugMajor"] = _score_presence(final_data.get("ugMajor", ""))
-    scores["pgDegree"] = _score_presence(final_data.get("pgDegree", ""))
-    scores["pgMajor"] = _score_presence(final_data.get("pgMajor", ""))
+    # --- certifications ---
+    certs = parsed.get("certifications", [])
+    confidence["certifications"] = score_list(certs, min_items=1, good_items=2)
 
-    # compute weighted overall score: assign weights (higher weight to name/email/experience/education)
-    weight_map = {
-        "name": 2.0,
-        "email": 2.0,
-        "phoneNumber": 1.0,
-        "workExperience": 2.0,
-        "certifications": 0.6,
-        "researchPublications": 0.6,
-        "achievements": 0.6,
-        "ugDegree": 1.0,
-        "ugMajor": 1.0,
-        "pgDegree": 0.8,
-        "pgMajor": 0.8
-    }
+    # --- achievements ---
+    ach = parsed.get("achievements", [])
+    confidence["achievements"] = score_list(ach, min_items=1, good_items=2)
 
-    total_weight = 0.0
-    weighted_sum = 0.0
-    for k, v in scores.items():
-        w = weight_map.get(k, 0.4)  # default small weight
-        total_weight += w
-        weighted_sum += (v * w)
+    # --- publications ---
+    pubs = parsed.get("researchPublications", [])
+    confidence["researchPublications"] = score_list(pubs, min_items=1, good_items=2)
 
-    overall = (weighted_sum / total_weight) * 100.0 if total_weight > 0 else 0.0
+    return confidence
 
-    # percentage scores mapping for front-end friendliness
-    pct_scores = {k: round(v * 100, 1) for k, v in scores.items()}
+def finalize_schema(final_data: dict, confidence: dict | None = None):
+    """
+    D-4: Final guardrails.
+    - Remove empty lists / empty strings
+    - Clamp confidence to valid keys only
+    """
+    # drop empty string fields
+    for k in list(final_data.keys()):
+        if final_data[k] == "" or final_data[k] == []:
+            continue  # keep schema shape stable
 
-    # final bundle
-    out = dict(scores)
-    out["percentage_scores"] = pct_scores
-    out["overall_quality_score"] = round(overall, 1)
-    return out
+    # confidence cleanup
+    if confidence is not None:
+        valid_keys = set(final_data.keys())
+        confidence = {
+            k: v for k, v in confidence.items()
+            if k in valid_keys and isinstance(v, (int, float))
+        }
+        return final_data, confidence
+
+    return final_data, None
+

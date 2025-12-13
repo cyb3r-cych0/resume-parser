@@ -59,3 +59,16 @@ pre { background: #f6f7fb !important; color: var(--text) !important; padding: 12
 # Inject CSS matching current theme
 css = DARK_CSS if st.session_state["theme"] == "dark" else LIGHT_CSS
 st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
+
+
+RAW FILE
+  ↓
+extract_text_from_bytes
+  ↓
+split_into_sections          ← section_segmentation.py
+  ↓
+assemble_full_schema         ← field_extraction.py
+  ↓
+normalize_schema             ← normalization.py
+  ↓
+return JSON

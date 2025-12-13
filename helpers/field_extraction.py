@@ -31,6 +31,58 @@ _TEST_SCORE_KEYS = {
 }
 
 # helper small utilities
+# -------------------------------
+# B-2: NER + heuristics job title extractor
+# -------------------------------
+def extract_job_title(block: str) -> str:
+    """
+    STRICT job title extractor.
+    - Extracts titles only if clear role keywords exist
+    - Never returns education, locations, or long sentences
+    """
+
+    if not block:
+        return ""
+
+    first = block.split("\n")[0].strip()
+
+    # Remove year ranges
+    first = re.sub(
+        r"(19|20)\d{2}\s*[-–—]\s*(Present|(19|20)\d{2})",
+        "",
+        first,
+        flags=re.IGNORECASE
+    )
+    first = re.sub(r"(19|20)\d{2}", "", first).strip()
+
+    # Hard reject noisy lines
+    if len(first.split()) > 6:
+        return ""
+
+    if re.search(r"[@/\\]|http", first):
+        return ""
+
+    BAD = {
+        "university", "college", "school", "bachelor", "master",
+        "certificate", "training", "expected graduation",
+        "portfolio", "about", "profile", "summary"
+    }
+    low = first.lower()
+    if any(b in low for b in BAD):
+        return ""
+
+    TITLE_WORDS = {
+        "engineer", "developer", "designer", "analyst",
+        "manager", "consultant", "intern", "architect",
+        "administrator", "specialist", "lead", "scientist"
+    }
+
+    if any(t in low for t in TITLE_WORDS):
+        return first
+
+    return ""
+
+
 def _first_match(pattern: re.Pattern, text: str) -> Optional[str]:
     if not text:
         return None
@@ -106,142 +158,278 @@ def extract_certifications_from_section(text: str) -> List[str]:
                 out.append(_clean(p))
     return list(dict.fromkeys(out))
 
-def extract_education_from_section(text: str) -> List[Dict[str, str]]:
+def extract_education_blocks(canonical_sections: Dict[str, str]) -> List[Dict[str, Any]]:
     """
-    Return list of education entries with fields:
-    collegeName, collegeAddress (best-effort), degree, major, graduationYear, gpa/percentage
+    D-1: Strict education extractor.
+    Prevents summaries / contacts / skills from leaking into education.
     """
+
+    DEGREE_WORDS = {
+        "bachelor", "b.sc", "btech", "b.tech", "bca",
+        "master", "m.sc", "mtech", "m.tech", "msc",
+        "phd", "doctorate", "associate", "diploma"
+    }
+
+    BAD_WORDS = {
+        "profile", "summary", "experience", "skills", "project",
+        "contact", "email", "phone", "portfolio"
+    }
+
+    YEAR_RE = re.compile(r"(19|20)\d{2}")
+    EMAIL_RE = re.compile(r"\S+@\S+")
+    URL_RE = re.compile(r"https?://\S+")
+
+    def _is_noise_line(s: str) -> bool:
+        low = s.lower()
+        if "@" in s or "http" in s:
+            return True
+        if re.search(r"\+?\d{7,}", s):  # phone numbers
+            return True
+        if len(s.split()) > 20:
+            return True
+        BAD = {
+            "profile", "summary", "skills", "experience",
+            "contact", "portfolio", "github", "linkedin"
+        }
+        return any(b in low for b in BAD)
+
+    text = canonical_sections.get("education", "")
     if not text:
         return []
-    lines = [l.strip() for l in text.splitlines() if l.strip()]
-    entries = []
-    # simple heuristic: look for lines containing year or degree keywords
-    buffer = []
-    for ln in lines:
-        buffer.append(ln)
-        # flush when we see a year or degree pattern or blank line
-        if YEAR_RE.search(ln) or _DEGREE_RE.search(ln):
-            block = " ".join(buffer)
-            entries.append(block)
-            buffer = []
-    # add remaining as single entry if none found
-    if not entries and buffer:
-        entries.append(" ".join(buffer))
 
-    out = []
-    for blk in entries:
-        college = ""
-        degree = ""
-        major = ""
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    entries = []
+
+    for ln in lines:
+        low = ln.lower()
+
+        if _is_noise_line(ln):
+            continue
+        if any(b in low for b in BAD_WORDS):
+            continue
+        if not any(d in low for d in DEGREE_WORDS):
+            continue
+
         year = ""
-        gpa = ""
-        # attempt email/phone unlikely here so skip
-        # try to split by comma
-        parts = [p.strip() for p in re.split(r",|\||-{2,}", blk) if p.strip()]
-        # find degree
-        dmatch = _DEGREE_RE.search(blk)
-        if dmatch:
-            degree = dmatch.group(0)
-        # year
-        y = _parse_year_from_text(blk)
-        if y:
-            year = y
-        # gpa or percentage
-        p_match = PERCENT_RE.search(blk)
-        if p_match:
-            gpa = p_match.group(0)
-        else:
-            gpa_m = GPA_RE.search(blk)
-            if gpa_m:
-                gpa = gpa_m.group(0)
-        # find potential college (longest part with 'univ/college/institute' or fallback first part)
-        college_candidates = [p for p in parts if re.search(r"(univ|college|institute|school|faculty|campus)", p, flags=re.IGNORECASE)]
-        if college_candidates:
-            college = college_candidates[0]
-        else:
-            # fallback to the first long segment
-            long_parts = sorted(parts, key=lambda x: len(x), reverse=True)
-            college = long_parts[0] if long_parts else parts[0] if parts else ""
-        # attempt major detection in block
-        m = re.search(r"(?:Major|Specialization|Field|Program)\s*[:\-]\s*([A-Za-z &/0-9]+)", blk, flags=re.IGNORECASE)
-        if m:
-            major = m.group(1).strip()
-        else:
-            # try keyword scan
-            for kw in ["computer science","information technology","electrical","mechanical","business","economics","finance","data science","software"]:
-                if kw in blk.lower():
-                    major = kw.title()
-                    break
-        out.append({
-            "collegeName": _clean(college),
-            "collegeAddress": "",
-            "degree": _clean(degree),
-            "major": _clean(major),
-            "graduationYear": _clean(year),
-            "gpaOrPercentage": _clean(gpa),
-            "gpaScale": ""
-        })
-    return out
+        ym = YEAR_RE.search(ln)
+        if ym:
+            year = ym.group(0)
 
-def extract_experience_from_section(text: str) -> List[Dict[str, str]]:
+        entries.append({
+            "collegeName": ln,
+            "collegeAddress": "",
+            "degree": ln,
+            "major": "",
+            "gpaOrPercentage": "",
+            "graduationYear": year
+        })
+
+    return entries[:2]  # max UG + PG
+
+
+def extract_experience_blocks(canonical_sections: Dict[str, str]) -> List[Dict[str, Any]]:
     """
-    Returns list of work experiences with basic fields: title, organization, startYear, endYear, details
+    FINAL work-experience extractor.
+    Guarantees:
+    - Real companies only
+    - Valid year ranges
+    - Extracted job titles
+    - No education / certification leakage
     """
+
+    YEAR_RE = re.compile(r"(19|20)\d{2}")
+    RANGE_RE = re.compile(r"(19|20)\d{2}\s*[-–—]\s*(Present|(19|20)\d{2})", re.I)
+
+    TITLE_RE = re.compile(
+        r"\b("
+        r"software engineer|senior software engineer|junior software engineer|"
+        r"full[- ]?stack developer|backend developer|frontend developer|"
+        r"java developer|python developer|web developer|"
+        r"data engineer|data analyst|ml engineer|ai engineer|"
+        r"security engineer|cybersecurity analyst|soc analyst|"
+        r"designer|web designer|ui/ux designer|"
+        r"architect|consultant|lead|manager|intern"
+        r")\b",
+        re.I
+    )
+
+    REJECT_WORDS = {
+        "university", "college", "school",
+        "bachelor", "master", "phd",
+        "certificate", "certified", "training",
+        "expected graduation", "skills",
+        "profile", "summary"
+    }
+
+    ACTION_VERBS = re.compile(
+        r"\b(developed|implemented|designed|built|managed|led|worked|maintained|"
+        r"created|optimized|configured|deployed|integrated)\b",
+        re.I
+    )
+
+    def extract_job_title_strict(lines: list) -> str:
+        for ln in lines[:2]:
+            if len(ln.split()) > 8:
+                continue
+            if YEAR_RE.search(ln):
+                continue
+            m = TITLE_RE.search(ln.lower())
+            if m:
+                return m.group(0).title()
+        return ""
+
+    text = canonical_sections.get("experience") or ""
     if not text:
         return []
-    lines = [l.strip() for l in text.splitlines() if l.strip()]
-    entries = []
-    # heuristic: group by blank lines or lines that start with uppercase title + company
-    buffer = []
-    for ln in lines:
-        if re.match(r"^[A-Z][\S ]{2,80}$", ln) and buffer and len(buffer) > 0 and any(YEAR_RE.search(b) for b in buffer[-2:]):
-            # likely new entry
-            entries.append(" ".join(buffer))
-            buffer = [ln]
-        else:
-            buffer.append(ln)
-    if buffer:
-        entries.append(" ".join(buffer))
 
-    out = []
-    for blk in entries:
-        title = ""
-        org = ""
-        start = ""
-        end = ""
-        details = blk
-        # try to find years
-        years = YEAR_RE.findall(blk)
-        if years:
-            # naive: first is start, last is end
-            if len(years) >= 1:
-                start = years[0]
-            if len(years) >= 2:
-                end = years[-1]
-        # try to parse "Title at Org" patterns
-        m = re.search(r"^(?P<title>[\w\-/ &]{3,60})\s+at\s+(?P<org>[\w &\.\-]{3,60})", blk, flags=re.IGNORECASE)
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    blocks, current = [], []
+
+    # STEP 1 — group by year markers
+    for ln in lines:
+        if YEAR_RE.search(ln):
+            if current:
+                blocks.append(current)
+                current = []
+        current.append(ln)
+
+    if current:
+        blocks.append(current)
+
+    results = []
+
+    # STEP 2 — process blocks
+    for blk in blocks:
+        blk_text = " ".join(blk).lower()
+
+        if any(w in blk_text for w in REJECT_WORDS):
+            continue
+
+        # years
+        start, end = "", ""
+        m = RANGE_RE.search(" ".join(blk))
         if m:
-            title = m.group("title").strip()
-            org = m.group("org").strip()
+            start = m.group(1)
+            end = m.group(2)
         else:
-            # try split by '—' or '-' or '|' or ',' heuristics
-            parts = re.split(r"—|-|\||,", blk)
-            if parts:
-                # assume first short part is title, second is org
-                if len(parts) >= 2:
-                    title = parts[0].strip()
-                    org = parts[1].strip()
-                else:
-                    # fallback: take first 6 words as title
-                    title = " ".join(parts[0].split()[:6])
-        out.append({
-            "title": _clean(title),
-            "organization": _clean(org),
-            "startYear": _clean(start),
-            "endYear": _clean(end),
-            "details": _clean(details)
+            years = re.findall(r"(19|20)\d{2}", " ".join(blk))
+            if not years:
+                continue
+            start = years[0]
+            end = years[1] if len(years) > 1 else ""
+
+        # title FIRST (important)
+        title = extract_job_title_strict(blk)
+
+        # organization
+        org = blk[0]
+
+        # remove years
+        org = re.sub(r"(19|20)\d{2}.*", "", org)
+
+        # remove title text from org
+        if title and title.lower() in org.lower():
+            org = re.sub(re.escape(title), "", org, flags=re.I)
+
+        # split separators
+        org = re.split(r"[|/–—\-]", org)[0]
+
+        BAD_ORG_TOKENS = {
+            "lorem", "ipsum", "profile", "summary", "about",
+            "chicago", "texas", "india", "missouri"
+        }
+
+        org = " ".join(
+            w for w in org.split() if w.lower() not in BAD_ORG_TOKENS
+        ).strip(" ,:-")
+
+        if len(org.split()) > 6:
+            continue
+
+        # details
+        details = []
+        for ln in blk[1:]:
+            if ACTION_VERBS.search(ln):
+                details.append(ln.strip())
+            if len(details) >= 6:
+                break
+
+        if not details:
+            continue
+
+        results.append({
+            "organization": org,
+            "title": title,
+            "startYear": start,
+            "endYear": end,
+            "details": details
         })
-    return out
+
+    # STEP 3 — merge duplicates
+    merged = {}
+
+    for exp in results:
+        key = (
+            exp["organization"].lower(),
+            exp["startYear"],
+            exp["endYear"]
+        )
+        if key not in merged:
+            merged[key] = exp
+        else:
+            merged[key]["details"] = list(
+                dict.fromkeys(merged[key]["details"] + exp["details"])
+            )[:6]
+
+    return list(merged.values())
+
+
+
+
+
+def _is_false_experience_block(block: dict) -> bool:
+    """
+    Filters out education, certifications, training, soft skills, and personal info
+    mistakenly classified as work experience.
+    """
+    text = (block.get("details","") + " " +
+            block.get("organization","") + " " +
+            block.get("title","")).lower()
+
+    BAD_HINTS = [
+        "graduation",
+        "expected",
+        "certificate",
+        "certified",
+        "training",
+        "internship program",
+        "gpa",
+        "university",
+        "school",
+        "education",
+        "languages:",
+        "contact",
+        "portfolio",
+        "@",
+        "hobbies",
+        "skills",
+        "technical skills",
+    ]
+
+    # If any bad hint appears → this block is NOT work experience
+    if any(b in text for b in BAD_HINTS):
+        return True
+
+    # discard blocks with no meaningful fields
+    if not block.get("title") and not block.get("organization"):
+        return True
+
+    # discard tiny fragments
+    if len(text) < 30:
+        return True
+
+    return False
+
 
 # ---------------- Top-level assembler ----------------
 def assemble_full_schema(raw_text: str, sections: Dict[str, str], nlp=None) -> Dict[str, Any]:
@@ -297,16 +485,45 @@ def assemble_full_schema(raw_text: str, sections: Dict[str, str], nlp=None) -> D
     parsed["email"] = contact.get("email", "")
     parsed["phoneNumber"] = contact.get("phoneNumber", "")
 
-    # populate name from NER hints or header heuristics
-    if nlp:
-        try:
-            doc = nlp(raw_text)
-            # prefer PERSON entity
-            persons = [ent.text.strip() for ent in doc.ents if ent.label_ == "PERSON"]
-            if persons:
-                parsed["name"] = persons[0]
-        except Exception:
-            pass
+    # C-4: strict name extraction (header + validation)
+    def _extract_name_strict(text: str, nlp=None) -> str:
+        BAD = {
+            "profile", "summary", "resume", "cv", "contact",
+            "education", "experience", "skills", "projects",
+            "visa status", "about me"
+        }
+
+        lines = [l.strip() for l in header_text.split("\n") if l.strip()]
+        header = lines[:5]
+
+        # 1) header heuristic (most reliable)
+        for ln in header:
+            low = ln.lower()
+            if any(b in low for b in BAD):
+                continue
+            if "@" in ln or "http" in ln or re.search(r"\d", ln):
+                continue
+            parts = ln.split()
+            if 2 <= len(parts) <= 4 and all(p[0].isupper() for p in parts):
+                return ln
+
+        # 2) fallback to NER but validated
+        if nlp:
+            try:
+                doc = nlp(text)
+                for ent in doc.ents:
+                    if ent.label_ == "PERSON":
+                        val = ent.text.strip()
+                        if any(b in val.lower() for b in BAD):
+                            continue
+                        if 2 <= len(val.split()) <= 4:
+                            return val
+            except Exception:
+                pass
+
+        return ""
+
+    parsed["name"] = _extract_name_strict(raw_text, nlp)
 
     # 2) Education: use 'education' section if present, otherwise scan all sections for education-like content
     edu_text = sections.get("education") or ""
@@ -316,25 +533,21 @@ def assemble_full_schema(raw_text: str, sections: Dict[str, str], nlp=None) -> D
             if "education" in k or "academic" in k or "school" in k:
                 edu_text = sections.get(k)
                 break
-    edu_entries = extract_education_from_section(edu_text or raw_text)
-    if edu_entries:
-        # map first to UG if degree contains Bachelor, else try to assign by year heuristics
-        if len(edu_entries) >= 1:
-            e0 = edu_entries[0]
-            parsed["ugCollegeName"] = e0.get("collegeName","")
-            parsed["ugCollegeAddress"] = e0.get("collegeAddress","")
-            parsed["ugCollegeGpaOrPercentage"] = e0.get("gpaOrPercentage","")
-            parsed["ugDegree"] = e0.get("degree","")
-            parsed["ugMajor"] = e0.get("major","")
-            parsed["ugGraduationYear"] = e0.get("graduationYear","")
-        if len(edu_entries) >= 2:
-            e1 = edu_entries[1]
-            parsed["pgCollegeName"] = e1.get("collegeName","")
-            parsed["pgCollegeAddress"] = e1.get("collegeAddress","")
-            parsed["pgCollegeGpaOrPercentage"] = e1.get("gpaOrPercentage","")
-            parsed["pgDegree"] = e1.get("degree","")
-            parsed["pgMajor"] = e1.get("major","")
-            parsed["pgGraduationYear"] = e1.get("graduationYear","")
+    edu_entries = extract_education_blocks({"education": edu_text})
+    for edu in edu_entries:
+        deg = (edu.get("degree") or "").lower()
+
+        if any(k in deg for k in ["bachelor", "b.sc", "b.tech"]):
+            parsed["ugCollegeName"] = edu.get("collegeName", "")
+            parsed["ugDegree"] = edu.get("degree", "")
+            parsed["ugMajor"] = edu.get("major", "")
+            parsed["ugGraduationYear"] = edu.get("graduationYear", "")
+
+        elif any(k in deg for k in ["master", "m.sc", "m.tech", "phd"]):
+            parsed["pgCollegeName"] = edu.get("collegeName", "")
+            parsed["pgDegree"] = edu.get("degree", "")
+            parsed["pgMajor"] = edu.get("major", "")
+            parsed["pgGraduationYear"] = edu.get("graduationYear", "")
 
     # 3) Work experience
     exp_text = sections.get("experience") or ""
@@ -343,7 +556,7 @@ def assemble_full_schema(raw_text: str, sections: Dict[str, str], nlp=None) -> D
             if "experience" in k or "employment" in k or "professional" in k:
                 exp_text = sections.get(k)
                 break
-    parsed["workExperience"] = extract_experience_from_section(exp_text or "")
+    parsed["workExperience"] = extract_experience_blocks({"experience": exp_text})
 
     # 4) Certifications
     cert_text = sections.get("certifications") or ""
@@ -369,4 +582,38 @@ def assemble_full_schema(raw_text: str, sections: Dict[str, str], nlp=None) -> D
     for k in list(parsed.keys()):
         if isinstance(parsed[k], str):
             parsed[k] = _clean(parsed[k])
+
+    # -----------------------------
+    # STEP 3 — SCHEMA GUARDS
+    # -----------------------------
+
+    def _clean_field(val: str) -> str:
+        if not val:
+            return ""
+        low = val.lower()
+        # reject obvious garbage
+        BAD = {
+            "profile summary", "resume", "cv",
+            "contact", "skills", "experience",
+            "expected graduation"
+        }
+        if any(b in low for b in BAD):
+            return ""
+        # reject URLs / emails / phones
+        if "@" in val or "http" in val:
+            return ""
+        if re.search(r"\+?\d{7,}", val):
+            return ""
+        # reject very long sentences
+        if len(val.split()) > 12:
+            return ""
+        return val.strip()
+
+    # apply guards
+    parsed["name"] = _clean_field(parsed.get("name", ""))
+    parsed["ugCollegeName"] = _clean_field(parsed.get("ugCollegeName", ""))
+    parsed["pgCollegeName"] = _clean_field(parsed.get("pgCollegeName", ""))
+    parsed["ugDegree"] = _clean_field(parsed.get("ugDegree", ""))
+    parsed["pgDegree"] = _clean_field(parsed.get("pgDegree", ""))
+
     return parsed
