@@ -145,18 +145,18 @@ real-world production use.
 
 ## 📁 Project Structure (Key Files)
 ```
-  File	                        Purpose
-  text_extraction.py            OCR & raw text extraction
-  section_segmentation.py	Resume section splitting
-  section_classifier.py	        Canonical section mapping
-  semantic_extraction.py	Core schema assembly
-  field_extraction.py	        Education & experience extraction
-  ner_utils.py	                spaCy-based NER augmentation
-  normalization.py	        Data cleaning & normalization
-  batch_worker.py	        Batch & single resume processing
-  db.py	                        Database persistence
-  api.py	                REST API
-  Dashboard.py	                UI & visualization
+  File	                  ----- Purpose
+  text_extraction.py      ----- OCR & raw text extraction
+  section_segmentation.py ----- Resume section splitting
+  section_classifier.py	  ----- Canonical section mapping
+  semantic_extraction.p   ----- Core schema assembly
+  field_extraction.py	  ----- Education & experience extraction
+  ner_utils.py	          ----- spaCy-based NER augmentation
+  normalization.py	      ----- Data cleaning & normalization
+  batch_worker.py	      ----- Batch & single resume processing
+  db.py	                  ----- Database persistence
+  api.py	              ----- REST API
+  Dashboard.py	          ----- UI & visualization
 ```
 
 ## 🧠 Design Philosophy
