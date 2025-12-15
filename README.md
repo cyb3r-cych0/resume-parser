@@ -308,10 +308,10 @@ real-world production use.
 
 
 ## API Endpoints
-- Homepage (main) - http://localhost:8501/
+- Dashboard - http://localhost:8501/
 - Parse Single File - http://localhost:8501/Parse_Single
-- Pass Batch/Bulk Files - http://localhost:8501/Parse_Batch
-- View Database - http://localhost:8501/Database_Records
+- Parse Batch Files - http://localhost:8501/Parse_Batch
+- Database - http://localhost:8501/Database_Records
 
 ## 🏁 Status
 
