@@ -299,12 +299,6 @@ def confidence_scores(parsed: Dict[str, Any]) -> Dict[str, float]:
     """
     Return per-field confidence (0..1) and percentage mapping plus an overall score (0..100).
     Structure:
-    {
-      "<field>": 0.8,
-      ...
-      "percentage_scores": {"<field>": 80.0, ...},
-      "overall_quality_score": 72.4
-    }
     """
     confidence = {}
 
