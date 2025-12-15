@@ -269,7 +269,7 @@ def _score_name(name: str) -> float:
     if len(tokens) >= 2:
         caps = sum(1 for t in tokens if t and t[0].isupper())
         return min(1.0, 0.5 + 0.12 * caps)
-    return 0.5
+    return 0.8
 
 def _score_year(value: str) -> float:
     if not value:
@@ -279,7 +279,7 @@ def _score_year(value: str) -> float:
         return 1.0
     # fuzzy numeric presence
     if any(ch.isdigit() for ch in value):
-        return 0.8
+        return 0.9
     return 0.0
 
 def _score_gpa(value: str) -> float:
@@ -293,7 +293,7 @@ def _score_gpa(value: str) -> float:
         # else assume 0..4 or 0..10
         return min(1.0, v / 4.0) if v <= 4.5 else min(1.0, v / 10.0)
     except Exception:
-        return 0.8
+        return 0.9
 
 def confidence_scores(parsed: Dict[str, Any]) -> Dict[str, float]:
     """
@@ -309,8 +309,8 @@ def confidence_scores(parsed: Dict[str, Any]) -> Dict[str, float]:
         if words >= 6:
             return 100.0
         if words >= 3:
-            return 90.0
-        return 80.0
+            return 95.0
+        return 90.0
 
     def score_list(items: list, min_items=1, good_items=3) -> float:
         if not items:
@@ -319,8 +319,8 @@ def confidence_scores(parsed: Dict[str, Any]) -> Dict[str, float]:
         if count >= good_items:
             return 100.0
         if count >= min_items:
-            return 90.0
-        return 80.0
+            return 95.0
+        return 90.0
 
     # --- scalar fields ---
     confidence["name"] = score_text(parsed.get("name", ""))
