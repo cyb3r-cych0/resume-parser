@@ -19,17 +19,35 @@ model_choice = st.sidebar.selectbox("📀 NLP model (speed ↔ accuracy)", MODEL
 st.markdown(
     """
     <style>
+    /* Standard Card Styles (Header/Footer Content) */
     .card {
       padding:16px;
+      margin-bottom:20px;
       border-radius:12px;
-      background:#E0FFFF;
+      background:#BBEDFC;
       box-shadow:0 6px 18px rgba(0,0,0,0.06);
-      margin-bottom:18px;
-    }
-    .centered {
-      display:flex; align-items:center; justify-content:center;
     }
     .muted { color: #000000; font-size:14px; }
+
+    /* Specific styles for the persistent footer bar */
+    .footer-bar {
+        position: sticky;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        background:#BBEDFC; 
+        box-shadow:0 -2px 10px rgba(0,0,0,0.1); 
+        border-radius:12px;
+        z-index: 100; 
+        padding: 10px 0; /* Vertical spacing */
+        margin-top: 380px;
+        margin-bottom: 10px;
+    }
+    .footer-content-wrapper {
+        padding-left: 20px;
+        padding-right: 20px;
+        text-align: center;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -263,11 +281,11 @@ else:
 st.markdown("---")
 st.markdown(
     """
-    <div style='text-align:center; color:#888; font-size:14px; margin-top:40px;'>
-        Parsely © 2025 — Resume Parsing & Intelligence Suite 
-    </div>
-    <div style='text-align:center; color:#005f69; font-size:12px; margin-top:10px;'>
-        Developed by cyb3r-cych0
+    <div class='card'>
+        <h2 style='text-align:center; margin:0; color:#005f69; font-size:15px;'>
+            Parsely © 2025 — Resume Parsing & Intelligence Suite
+        </h2>
+        <div style='text-align:center; margin:0;' class='muted'>Developed by cyb3r-cych0</div>
     </div>
     """,
     unsafe_allow_html=True

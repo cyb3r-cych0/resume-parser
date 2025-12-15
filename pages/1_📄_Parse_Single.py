@@ -17,26 +17,56 @@ api_parse = api_base.rstrip("/") + "/parse"
 MODEL_CHOICES = ["en_core_web_sm", "en_core_web_lg", "en_core_web_trf"]
 model_choice = st.sidebar.selectbox("📀 NLP model (speed ↔ accuracy)", MODEL_CHOICES, index=0,
                                     help="Pick small (fast), large (better NER), or trf (best accuracy)", key="single_model_choice")
+
 # CSS tweaks
 st.markdown(
     """
     <style>
+    /* Standard Card Styles (Header/Footer Content) */
     .card {
       padding:16px;
+      margin-bottom:20px;
       border-radius:12px;
-      background:#005f69;
+      background:#BBEDFC;
       box-shadow:0 6px 18px rgba(0,0,0,0.06);
-      margin-bottom:18px;
-    }
-    .centered {
-      display:flex; align-items:center; justify-content:center;
     }
     .muted { color: #000000; font-size:14px; }
+
+    /* Specific styles for the persistent footer bar */
+    .footer-bar {
+        position: sticky;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        background:#BBEDFC; 
+        box-shadow:0 -2px 10px rgba(0,0,0,0.1); 
+        border-radius:12px;
+        z-index: 100; 
+        padding: 10px 0; /* Vertical spacing */
+        margin-top: 360px;
+        margin-bottom: 10px;
+    }
+    .footer-content-wrapper {
+        padding-left: 20px;
+        padding-right: 20px;
+        text-align: center;
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
-st.markdown("<div class='card'><h2 style='margin:0'>📄 Parse Single Resume</h2><div class='muted'>Upload a file and click Parse</div></div>", unsafe_allow_html=True)
+
+st.markdown(
+    """
+    <div class='card'>
+        <h2 style='margin:0; color:#005f69; font-size:40px;'>
+            📄 Parse Single Resume
+        </h2>
+        <div class='muted'>Upload a file and click Parse</div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 # cache controls
 st.sidebar.markdown("---")
@@ -61,7 +91,7 @@ with st.container():
     col1, col2, col3 = st.columns([1, 6, 1])
     with col2:
         uploaded = st.file_uploader("Upload resume (pdf/docx/png/jpg/tiff)", type=["pdf","docx","txt","png","jpg","jpeg","tiff"], key="single_file", help="Drop or click to select")
-        st.markdown("<div style='height:6px'; 'margin-top=:15px;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:6px'; 'margin:10px;'></div>", unsafe_allow_html=True)
         c1, c2 = st.columns([2,2])
         with c1:
             include_conf = st.checkbox("Include confidence", value=False, key="ui_single_conf")
@@ -183,3 +213,18 @@ if result:
         with st.expander("Show parsed JSON", expanded=False):
             st.code(json.dumps(result, indent=2), language="json")
         st.markdown("</div>", unsafe_allow_html=True)
+
+# --- Footer  ---
+st.markdown(
+    """
+    <div class='footer-bar'>
+        <div class='footer-content-wrapper'>
+            <h2 style='margin:0; color:#005f69; font-size:15px;'>
+                Parsely © 2025 — Resume Parsing & Intelligence Suite
+            </h2>
+            <div class='muted'>Developed by cyb3r-cych0</div>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)

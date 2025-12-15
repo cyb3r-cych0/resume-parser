@@ -24,22 +24,50 @@ model_choice = st.sidebar.selectbox("📀 NLP model (speed ↔ accuracy)", MODEL
 st.markdown(
     """
     <style>
+    /* Standard Card Styles (Header/Footer Content) */
     .card {
       padding:16px;
+      margin-bottom:20px;
       border-radius:12px;
-      background:#005f69;
+      background:#BBEDFC;
       box-shadow:0 6px 18px rgba(0,0,0,0.06);
-      margin-bottom:18px;
-    }
-    .centered {
-      display:flex; align-items:center; justify-content:center;
     }
     .muted { color: #000000; font-size:14px; }
+
+    /* Specific styles for the persistent footer bar */
+    .footer-bar {
+        position: sticky;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        background:#BBEDFC; 
+        box-shadow:0 -2px 10px rgba(0,0,0,0.1); 
+        border-radius:12px;
+        z-index: 100; 
+        padding: 10px 0; /* Vertical spacing */
+        margin-top: 30px;
+        margin-bottom: 10px;
+    }
+    .footer-content-wrapper {
+        padding-left: 20px;
+        padding-right: 20px;
+        text-align: center;
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
-st.markdown("<div class='card'><h2 style='margin:0'>🗃️ Saved Parsed Records</h2><div class='muted'>Browse, inspect, export and reparse stored records</div></div>", unsafe_allow_html=True)
+st.markdown(
+    """
+    <div class='card'>
+        <h2 style='margin:0; color:#005f69; font-size:40px;'>
+            🗃️ Saved Parsed Records
+        </h2>
+        <div class='muted'>Upload a file and click Parse</div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 # cache controls
 st.sidebar.markdown("---")
@@ -276,7 +304,22 @@ if rec:
             st.code(json.dumps(parsed, indent=2), language="json")
 
     st.markdown("---")
-# ---------------- Footer / debug ----------------
+# ----------------  debug ----------------
 st.markdown("### Tools")
 st.write("You can open records from the home page 'Recent Activity' or by typing an ID above.")
 st.write(f"Backend: {api_base}")
+
+# --- Footer  ---
+st.markdown(
+    """
+    <div class='footer-bar'>
+        <div class='footer-content-wrapper'>
+            <h2 style='margin:0; color:#005f69; font-size:15px;'>
+                Parsely © 2025 — Resume Parsing & Intelligence Suite
+            </h2>
+            <div class='muted'>Developed by cyb3r-cych0</div>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)

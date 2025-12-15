@@ -23,22 +23,51 @@ model_choice = st.sidebar.selectbox("📀 NLP model (speed ↔ accuracy)", MODEL
 st.markdown(
     """
     <style>
+    /* Standard Card Styles (Header/Footer Content) */
     .card {
       padding:16px;
+      margin-bottom:20px;
       border-radius:12px;
-      background:#005f69;
+      background:#BBEDFC;
       box-shadow:0 6px 18px rgba(0,0,0,0.06);
-      margin-bottom:18px;
-    }
-    .centered {
-      display:flex; align-items:center; justify-content:center;
     }
     .muted { color: #000000; font-size:14px; }
+
+    /* Specific styles for the persistent footer bar */
+    .footer-bar {
+        position: sticky;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        background:#BBEDFC; 
+        box-shadow:0 -2px 10px rgba(0,0,0,0.1); 
+        border-radius:12px;
+        z-index: 100; 
+        padding: 10px 0; /* Vertical spacing */
+        margin-top: 360px;
+        margin-bottom: 10px;
+    }
+    .footer-content-wrapper {
+        padding-left: 20px;
+        padding-right: 20px;
+        text-align: center;
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
-st.markdown("<div class='card'><h2 style='margin:0'>📁 Parse Batch of Resumes</h2><div class='muted'>Upload multiple files and choose parse mode</div></div>", unsafe_allow_html=True)
+
+st.markdown(
+    """
+    <div class='card'>
+        <h2 style='margin:0; color:#005f69; font-size:40px;'>
+            📁 Parse Batch of Resumes
+        </h2>
+        <div class='muted'>Upload a file and click Parse</div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 # cache controls
 st.sidebar.markdown("---")
@@ -74,7 +103,7 @@ with st.container():
         # action buttons
         a1, a2, a3 = st.columns([1, 1, 1])
         with a1:
-            parse_parallel = st.button("Parse in Parallel")
+            parse_parallel = st.button("Parse Parallel")
         with a2:
             parse_sequential = st.button("Parse Sequentially")
         with a3:
@@ -302,3 +331,18 @@ if results_bundle:
             # st.experimental_rerun()
     else:
         st.info("Select a result row to view full details (gauge, chart, JSON).")
+
+# --- Footer  ---
+st.markdown(
+    """
+    <div class='footer-bar'>
+        <div class='footer-content-wrapper'>
+            <h2 style='margin:0; color:#005f69; font-size:15px;'>
+                Parsely © 2025 — Resume Parsing & Intelligence Suite
+            </h2>
+            <div class='muted'>Developed by cyb3r-cych0</div>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
