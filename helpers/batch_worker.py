@@ -11,7 +11,7 @@ import traceback
 from typing import Dict, Any
 
 # local pipeline helpers
-from helpers.section_classifier import classify_sections
+from helpers.section_classifier import classify_blocks
 from helpers.field_extraction import assemble_full_schema
 from helpers.db import save_hash_cache, get_record_by_hash
 from helpers.text_extraction import extract_text_from_bytes
@@ -67,8 +67,6 @@ def process_single_file(
     }
     """
 
-    QUALITY_SAVE_THRESHOLD = 70.0
-
     start_total = time.perf_counter()
     timings = {}
 
@@ -112,7 +110,7 @@ def process_single_file(
         # Section classification
         # -------------------------------
         try:
-            section_labels = classify_sections(sections)
+            section_labels = classify_blocks(sections)
             canonical_sections = {}
             for raw_key, text in sections.items():
                 label = section_labels.get(raw_key, "other") or "other"
@@ -176,6 +174,7 @@ def process_single_file(
         # Quality-gated persistence
         # -------------------------------
         saved_to_db = False
+        QUALITY_SAVE_THRESHOLD = 70.0
         if use_cache and resume_quality_score >= QUALITY_SAVE_THRESHOLD:
             try:
                 h = compute_file_hash(data, model_name)

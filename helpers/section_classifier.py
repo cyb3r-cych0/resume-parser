@@ -69,6 +69,3 @@ def classify_blocks(paragraphs: List[str]) -> List[str]:
     X = vec.transform(paragraphs)
     preds = clf.predict(X)
     return preds.tolist()
-
-def classify_sections():
-    pass

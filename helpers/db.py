@@ -13,9 +13,9 @@ from sqlalchemy import (
     create_engine, Column, Integer, Text, DateTime, String, Boolean, LargeBinary
 )
 
-DB_DIR = os.path.join(os.getcwd(), "data")
+DB_DIR = os.path.join(os.getcwd(), "database")
 os.makedirs(DB_DIR, exist_ok=True)
-DB_PATH = os.path.join(DB_DIR, "resume_results.db")
+DB_PATH = os.path.join(DB_DIR, "parsed_resumes.db")
 SQLITE_URL = f"sqlite:///{DB_PATH}"
 
 engine = create_engine(SQLITE_URL, connect_args={"check_same_thread": False}, echo=False)
@@ -57,9 +57,15 @@ def init_db():
     except Exception as e:
         print("init_db: failed to create hash_cache table:", e)
 
-def save_parsed_result(filename: str, parsed_obj: Optional[Dict[str, Any]],
-                       raw_bytes: Optional[bytes] = None,
-                       status: str = "ok", error: str = None, source: str = "api") -> int:
+def save_parsed_result(
+    filename: str,
+    parsed_obj: Optional[Dict[str, Any]],
+    raw_bytes: Optional[bytes] = None,
+    status: str = "ok",
+    error: str = None,
+    source: str = "api",
+    saved: bool = True,   # ✅ NEW
+) -> int:
     db = SessionLocal()
     try:
         rec = ResumeRecord(
@@ -69,6 +75,7 @@ def save_parsed_result(filename: str, parsed_obj: Optional[Dict[str, Any]],
             status=status,
             error=error,
             source=source,
+            saved=saved,     # ✅ persisted
         )
         db.add(rec)
         db.commit()
@@ -76,6 +83,7 @@ def save_parsed_result(filename: str, parsed_obj: Optional[Dict[str, Any]],
         return rec.id
     finally:
         db.close()
+
 
 def get_record(record_id: int) -> Optional[Dict[str, Any]]:
     db = SessionLocal()
@@ -170,5 +178,46 @@ def delete_record(record_id: int) -> bool:
         db.delete(rec)
         db.commit()
         return True
+    finally:
+        db.close()
+
+def list_saved_records(limit: int = 50, offset: int = 0):
+    db = SessionLocal()
+    try:
+        q = (
+            db.query(ResumeRecord)
+            .filter(ResumeRecord.saved == True)
+            .order_by(ResumeRecord.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        return [{
+            "id": r.id,
+            "filename": r.filename,
+            "created_at": r.created_at.isoformat(),
+            "source": r.source,
+            "status": r.status,
+        } for r in q]
+    finally:
+        db.close()
+
+
+def list_rejected_records(limit: int = 50, offset: int = 0):
+    db = SessionLocal()
+    try:
+        q = (
+            db.query(ResumeRecord)
+            .filter(ResumeRecord.saved == False)
+            .order_by(ResumeRecord.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        return [{
+            "id": r.id,
+            "filename": r.filename,
+            "created_at": r.created_at.isoformat(),
+            "source": r.source,
+            "status": r.status,
+        } for r in q]
     finally:
         db.close()

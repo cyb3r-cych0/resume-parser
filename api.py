@@ -236,3 +236,14 @@ def api_clear_cache():
         return {"status": "ok", "message": "Cache cleared"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to clear cache: {e}")
+
+@app.get("/records/saved")
+def api_saved_records(limit: int = 50, offset: int = 0):
+    from helpers.db import list_saved_records
+    return {"count": limit, "results": list_saved_records(limit, offset)}
+
+
+@app.get("/records/rejected")
+def api_rejected_records(limit: int = 50, offset: int = 0):
+    from helpers.db import list_rejected_records
+    return {"count": limit, "results": list_rejected_records(limit, offset)}

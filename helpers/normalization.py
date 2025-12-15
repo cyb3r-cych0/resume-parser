@@ -276,7 +276,7 @@ def _score_year(value: str) -> float:
         return 0.0
     # If year looks valid
     if YEAR_RE.search(value):
-        return 0.9
+        return 1.0
     # fuzzy numeric presence
     if any(ch.isdigit() for ch in value):
         return 0.8
