@@ -1,19 +1,17 @@
 @echo off
-REM Upgrade pip, setuptools, wheel
+REM 1. Standard updates
 python -m pip install --upgrade pip setuptools wheel
 
-REM Install from requirements.txt
+REM 2. Dependencies
 pip install -r requirements.txt
-
-REM Install/upgrade spacy
 pip install -U spacy
 
-REM Download the spacy English model
+REM 3. SpaCy Model
 python -m spacy download en_core_web_sm
 
-REM Pre-download the SentenceTransformer model
-python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+REM 4. SentenceTransformer pre-download script
+python download_all-MiniLM-L6-v2.py
 
 echo.
-echo Installation and setup complete.
+echo Installation and Setup complete. All models saved to local directories.
 pause

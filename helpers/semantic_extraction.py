@@ -10,8 +10,9 @@ Offline-friendly: embeddings and spaCy are optional.
 
 import re
 import time
-from collections import defaultdict, Counter
-from typing import Dict, Any, List, Tuple, Optional
+import numpy as _np
+from collections import defaultdict
+from typing import Dict, Any, List
 
 # optional imports (safe)
 try:
@@ -21,8 +22,7 @@ except Exception:
 
 try:
     from sentence_transformers import SentenceTransformer
-    import numpy as _np
-    _EMBED_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
+    _EMBED_MODEL = SentenceTransformer("sentence-models/all-MiniLM-L6-v2", local_files_only=True)
     _USE_EMBED = True
 except Exception:
     _EMBED_MODEL = None

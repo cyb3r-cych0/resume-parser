@@ -157,6 +157,7 @@ real-world production use.
   db.py	                  ----- Database persistence
   api.py	              ----- REST API
   Dashboard.py	          ----- UI & visualization
+  install_requirements.bat----- Installation script
 ```
 
 ## 🧠 Design Philosophy
@@ -178,38 +179,48 @@ real-world production use.
    ```
 
 2. **Install dependencies**:
-    - Python 3.13.x is recommended (compatible with Streamlit).
-    - Create a virtual environment:
-    ```bash
-    python -m venv .env
-    ```
+   - Python 3.13.x is recommended (compatible with project dependencies).
 
-   - #### On Windows
-     - To install dependencies on Windows, run the batch file `install_requirements.bat` in Windows Terminal:
-       ```bash
-       cd c:\path\to\resume-parser
-       install_requirements.bat
-       ```
+   1. #### On Windows
+      
+      - Create a virtual environment:
+        ```bash
+        python -m venv .env
+        ```
+      
+      - Activate virtual environment
+        ```shell
+        .env/Scripts/activate
+        ```
+        
+      - To install dependencies on Windows Environment, run the batch file `install_requirements.bat` in Windows Terminal:
+         ```bash
+         cd c:\path\to\resume-parser
+         install_requirements.bat
+         ```
 
-   - #### On Unix/Linux/macOS (Git Bash, WSL, MinGW, or native Unix shells)
-     - To install dependencies on Unix-like systems, use `make`:
-       ```bash
+   2. #### On Unix/Linux/macOS (Git Bash, WSL, MinGW, or native Unix shells)
+
+       - Create a virtual environment:
+         ```bash
+         python3 -m venv .env
+         ```
+      
+      - Activate virtual environment
+        ```bash
+        source .env/bin/activate
+        ```
+      
+      - To install dependencies on Unix-like systems, use `make`:
+        ```bash
         cd /path/to/resume-parser
         make
-       ```
+        ```
 
-3. Additional spaCy model download (if not included in makefile or batch script):
+3. Additional spaCy model download (if not included in makefile or batch script due to big file_size):
    ```bash
-   pip install -U pip setuptools wheel
-   pip install -U spacy
-   python -m spacy download en_core_web_sm 
-   python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
-   ```
-   **OR**
-4. Alternatively, you can choose a spaCy model that works best with your needs(speed &/ accuracy)
-  ```bash
-    python -m spacy download en_core_web_trf #  slower 
-    python -m spacy download en_core_web_lg #  very large
+   python -m spacy download en_core_web_trf #  slower 
+   python -m spacy download en_core_web_lg #  very large
    ```
 
 ## 🚀 How To Run

@@ -25,7 +25,7 @@ from difflib import SequenceMatcher
 # Optional embedding support: only used if sentence-transformers is installed and available locally.
 try:
     from sentence_transformers import SentenceTransformer
-    _SENTENCE_EMBED_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
+    _SENTENCE_EMBED_MODEL = SentenceTransformer("models/all-MiniLM-L6-v2", local_files_only=True)
     _USE_EMBED = True
 except Exception:
     _SENTENCE_EMBED_MODEL = None
