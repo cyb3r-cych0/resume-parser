@@ -22,7 +22,7 @@ except Exception:
 
 try:
     from sentence_transformers import SentenceTransformer
-    _EMBED_MODEL = SentenceTransformer("sentence-models/all-MiniLM-L6-v2", local_files_only=True)
+    _EMBED_MODEL = SentenceTransformer("models/all-MiniLM-L6-v2", local_files_only=True)
     _USE_EMBED = True
 except Exception:
     _EMBED_MODEL = None
@@ -346,10 +346,7 @@ def parse_experience_blocks(canonical_sections: Dict[str,str]) -> List[Dict[str,
     return out
 
 
-
-
 # ---------- skills synthesizer ----------
-# ---------- improved skills synthesizer ----------
 import itertools
 
 TECH_TOKEN_RE = re.compile(r"[A-Za-z0-9\+\.\-#_/&\s]{1,80}")
@@ -615,9 +612,9 @@ def build_final_schema(raw_text: str, canonical_sections: Dict[str,str], nlp=Non
         # heuristics: first degree with 'master' -> pg else ug
         for d in degrees:
             low = d.lower()
-            if "master" in low or "m.sc" in low or "ms " in low or "mba" in low:
+            if "master" in low or "m.sc" in low or "ms " in low or "mba" in low or "msc" in low:
                 if not pg: pg = d
-            elif "bachelor" in low or "bs " in low or "b.sc" in low or "ba " in low:
+            elif "bachelor" in low or "bs " in low or "b.sc" in low or "ba " in low or "bsc" in low:
                 if not ug: ug = d
             else:
                 # fallback assign first to ug if empty
@@ -702,7 +699,7 @@ def build_final_schema(raw_text: str, canonical_sections: Dict[str,str], nlp=Non
     work_blocks = parse_experience_blocks(canonical_sections)
     parsed["workExperience"] = work_blocks
     parsed["workExperience"] = _fill_missing_work_orgs(parsed["workExperience"], canonical_sections)
-    confidences["workExperience"] = round(min(100, 30 + len(work_blocks)*15),1) if work_blocks else 0.0
+    confidences["workExperience"] = round(min(100, 80 + len(work_blocks)*15),1) if work_blocks else 0.0 #
 
     # certifications
     certs = []
@@ -735,7 +732,7 @@ def build_final_schema(raw_text: str, canonical_sections: Dict[str,str], nlp=Non
         confidences["summary"] = 100.0
     elif sumcand:
         parsed["summary"] = sumcand[0]["text"]
-        confidences["summary"] = round((length_penalty(parsed["summary"])*80),1)
+        confidences["summary"] = round((length_penalty(parsed["summary"])*95),1) #
     else:
         parsed["summary"] = ""
         confidences["summary"] = 0.0
