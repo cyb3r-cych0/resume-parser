@@ -316,6 +316,7 @@ real-world production use.
 - Supports single file upload or bulk sequential uploads.
 - Supported File Type: `(PDF, DOCX, TXT, JPG, PNG, JPEG)`
 - Clear cache before reparsing file to avoid display of stored cached data
+- **CAN BE USED OFFLINE**
 
 
 ## API Endpoints
