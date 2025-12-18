@@ -16,4 +16,4 @@ download-spacy-model:
 \tpython -m spacy download en_core_web_sm
 
 download-sentence-transformer-model:
-\tpython download_all-MiniLlM-L6-v2.py
+\tpython download_all-MiniLM-L6-v2.py
